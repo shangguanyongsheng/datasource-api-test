@@ -1,0 +1,24 @@
+# 环境配置
+environment:
+  name: "测试环境"
+  base_url: "http://localhost:8080"
+  timeout: 30
+
+# 认证配置
+auth:
+  tenant_id: "tenant_001"
+  user_id: 1001
+  token: ""  # 如需要可配置
+
+# 数据库配置（用于数据校验）
+database:
+  host: "localhost"
+  port: 3306
+  database: "cfs_report"
+  user: "root"
+  password: "password"
+
+# 报告配置
+report:
+  output_dir: "reports/html"
+  title: "数据源查询接口测试报告"
