@@ -161,10 +161,23 @@ def _get_all_test_cases():
     all_cases = []
     configs = get_data_source_configs()
 
-    for widget_id, config in configs.items():
-        generator = TestCaseGenerator(config)
+    # 从配置文件获取当前选中的数据源ID
+    config = get_config()
+    current_widget_id = config.get('current_widget_id')
+
+    if current_widget_id and current_widget_id in configs:
+        # 只加载当前选中的数据源
+        generator = TestCaseGenerator(configs[current_widget_id])
         cases = generator.generate_all_cases()
         all_cases.extend(cases)
+        logger.info(f"只加载数据源 {current_widget_id} 的测试用例，共 {len(cases)} 个")
+    else:
+        # 加载所有数据源（兼容旧逻辑）
+        for widget_id, ds_config in configs.items():
+            generator = TestCaseGenerator(ds_config)
+            cases = generator.generate_all_cases()
+            all_cases.extend(cases)
+        logger.info(f"加载所有数据源，共 {len(all_cases)} 个测试用例")
     
     # 如果没有SQL配置，生成默认测试用例
     if not all_cases:

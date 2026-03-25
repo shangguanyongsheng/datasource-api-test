@@ -236,7 +236,7 @@ class DataSourceTestGUI:
             except Exception as e:
                 self.log(f"配置加载失败: {e}", "ERROR")
     
-    def save_config(self):
+    def save_config(self, silent=False):
         """保存配置"""
         config = {
             'environment': {
@@ -248,6 +248,7 @@ class DataSourceTestGUI:
                 'tenant_id': self.tenant_id_var.get(),
                 'user_id': int(self.user_id_var.get())
             },
+            'current_widget_id': int(self.widget_id_var.get()),  # 当前选中的数据源ID
             'report': {
                 'output_dir': 'reports/html',
                 'title': '数据源查询接口测试报告'
@@ -260,10 +261,12 @@ class DataSourceTestGUI:
                 yaml.dump(config, f, allow_unicode=True, default_flow_style=False)
             
             self.log("配置保存成功", "SUCCESS")
-            messagebox.showinfo("成功", "配置已保存")
+            if not silent:
+                messagebox.showinfo("成功", "配置已保存")
         except Exception as e:
             self.log(f"配置保存失败: {e}", "ERROR")
-            messagebox.showerror("错误", f"配置保存失败: {e}")
+            if not silent:
+                messagebox.showerror("错误", f"配置保存失败: {e}")
     
     def load_example_sql(self):
         """加载示例 SQL"""
@@ -306,12 +309,13 @@ INSERT INTO rpt_data_source_field (data_source_id, type, code, name, field, agg_
                 self.log(f"文件加载失败: {e}", "ERROR")
                 messagebox.showerror("错误", f"文件加载失败: {e}")
     
-    def save_sql_config(self):
+    def save_sql_config(self, silent=False):
         """保存 SQL 配置到文件"""
         sql_content = self.sql_text.get(1.0, tk.END).strip()
         
         if not sql_content:
-            messagebox.showwarning("警告", "SQL 内容为空")
+            if not silent:
+                messagebox.showwarning("警告", "SQL 内容为空")
             return
         
         widget_id = self.widget_id_var.get()
@@ -341,13 +345,15 @@ INSERT INTO rpt_data_source_field (data_source_id, type, code, name, field, agg_
             
             self.log(f"SQL 配置已保存: {file_path}", "SUCCESS")
             self.log(f"数据源ID 已更新为: {widget_id}", "INFO")
-            messagebox.showinfo("成功", f"配置已保存到:\n{file_path}")
+            if not silent:
+                messagebox.showinfo("成功", f"配置已保存到:\n{file_path}")
             
             # 刷新列表
             self.refresh_datasources()
         except Exception as e:
             self.log(f"保存失败: {e}", "ERROR")
-            messagebox.showerror("错误", f"保存失败: {e}")
+            if not silent:
+                messagebox.showerror("错误", f"保存失败: {e}")
     
     def clear_sql(self):
         """清空 SQL"""
@@ -426,8 +432,8 @@ INSERT INTO rpt_data_source_field (data_source_id, type, code, name, field, agg_
     
     def run_tests(self):
         """运行测试"""
-        # 先保存当前 SQL
-        self.save_sql_config()
+        # 先保存当前 SQL（静默模式，不弹窗）
+        self.save_sql_config(silent=True)
         
         # 构建测试标记
         markers = []
@@ -439,9 +445,10 @@ INSERT INTO rpt_data_source_field (data_source_id, type, code, name, field, agg_
             messagebox.showwarning("警告", "请至少选择一种测试类型")
             return
         
-        # 更新配置文件
-        self.save_config()
+        # 更新配置文件（包含当前选中的数据源ID，静默模式）
+        self.save_config(silent=True)
         
+        self.log(f"当前测试数据源ID: {self.widget_id_var.get()}", "INFO")
         self.log("开始运行测试...", "INFO")
         self.status_var.set("运行中...")
         

@@ -10,6 +10,9 @@ auth:
   user_id: 1001
   token: ""  # 如需要可配置
 
+# 当前测试的数据源ID（只运行这一个）
+current_widget_id: 123
+
 # 数据库配置（用于数据校验）
 database:
   host: "localhost"
