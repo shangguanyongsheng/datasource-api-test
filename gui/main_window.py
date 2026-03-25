@@ -157,6 +157,24 @@ class DataSourceTestGUI:
                 row=i//2, column=i%2, sticky=tk.W, padx=5, pady=2
             )
         
+        # 错误处理选项
+        error_frame = ttk.LabelFrame(right_panel, text="错误处理", padding="5")
+        error_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        self.skip_errors_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            error_frame, 
+            text="跳过错误继续执行（出错不中断，继续跑下一个用例）", 
+            variable=self.skip_errors_var
+        ).pack(anchor=tk.W)
+        
+        self.max_fail_var = tk.StringVar(value="0")
+        max_fail_frame = ttk.Frame(error_frame)
+        max_fail_frame.pack(fill=tk.X, pady=(5, 0))
+        ttk.Label(max_fail_frame, text="最大失败数:").pack(side=tk.LEFT)
+        ttk.Entry(max_fail_frame, textvariable=self.max_fail_var, width=5).pack(side=tk.LEFT, padx=5)
+        ttk.Label(max_fail_frame, text="(0=不限制，出错继续执行)").pack(side=tk.LEFT)
+        
         # 运行按钮
         run_frame = ttk.Frame(right_panel)
         run_frame.pack(fill=tk.X, pady=(0, 10))
@@ -404,6 +422,15 @@ INSERT INTO rpt_data_source_field (data_source_id, type, code, name, field, agg_
             # 添加标记过滤
             marker_expr = " or ".join(markers)
             cmd.extend(["-m", marker_expr])
+            
+            # 添加错误处理选项
+            if self.skip_errors_var.get():
+                max_fail = self.max_fail_var.get()
+                try:
+                    max_fail_int = int(max_fail)
+                    cmd.extend([f"--maxfail={max_fail_int}"])
+                except ValueError:
+                    cmd.extend(["--maxfail=0"])
             
             self.log(f"执行命令: {' '.join(cmd)}", "INFO")
             

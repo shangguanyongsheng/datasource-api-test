@@ -195,3 +195,31 @@ def pytest_generate_tests(metafunc):
         test_cases = _get_all_test_cases()
         ids = [f"{tc['case_id']}_{tc['name']}" for tc in test_cases]
         metafunc.parametrize("test_case", test_cases, ids=ids)
+
+
+def pytest_collection_modifyitems(config, items):
+    """根据测试用例的 case_id 自动添加 marker"""
+    marker_map = {
+        'TC0': 'basic',       # TC001-TC007
+        'TC1': 'combine',     # TC101-TC104
+        'TC2': 'boundary',    # TC201-TC205
+        'TC4': 'pagination',  # TC401-TC410
+        'TC5': 'no_pagination',  # TC501-TC508
+    }
+    
+    for item in items:
+        try:
+            # 从测试用例 ID 中提取 case_id
+            if hasattr(item, 'callspec') and item.callspec:
+                test_case = item.callspec.params.get('test_case', {})
+                case_id = test_case.get('case_id', '') if isinstance(test_case, dict) else ''
+                
+                if case_id:
+                    # 根据 case_id 前缀匹配 marker
+                    for prefix, marker_name in marker_map.items():
+                        if case_id.startswith(prefix):
+                            item.add_marker(marker_name)
+                            break
+        except Exception:
+            # 忽略获取参数时的异常
+            pass
