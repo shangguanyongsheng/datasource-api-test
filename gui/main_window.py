@@ -264,23 +264,25 @@ class DataSourceTestGUI:
     
     def load_example_sql(self):
         """加载示例 SQL"""
-        example_sql = """-- 数据源ID: 123
+        widget_id = self.widget_id_var.get() or "123"
+        
+        example_sql = f"""-- 数据源ID: {widget_id}
 -- 数据源名称: 融资统计测试数据源
 
 INSERT INTO rpt_data_source_field (data_source_id, type, code, name, field, agg_type, filter_condition, component_code) VALUES
-(123, 'filter', 'orgId', '组织', 'org_id', NULL, 'in', 'tree-select'),
-(123, 'filter', 'year', '年度', 'year', NULL, 'geq', 'date'),
-(123, 'filter', 'status', '状态', 'status', NULL, 'in', 'select'),
-(123, 'index_info', 'amount', '金额', 'amount', 'sum', NULL, NULL),
-(123, 'index_info', 'balance', '余额', 'balance', 'sum', NULL, NULL),
-(123, 'index_info', 'count', '笔数', 'id', 'count', NULL, NULL),
-(123, 'dimension', 'orgId', '组织', 'org_id', NULL, NULL, NULL),
-(123, 'dimension', 'month', '月份', 'month', NULL, NULL, NULL),
-(123, 'orders', 'amount', '金额', 'amount', NULL, NULL, NULL);"""
+({widget_id}, 'filter', 'orgId', '组织', 'org_id', NULL, 'in', 'tree-select'),
+({widget_id}, 'filter', 'year', '年度', 'year', NULL, 'geq', 'date'),
+({widget_id}, 'filter', 'status', '状态', 'status', NULL, 'in', 'select'),
+({widget_id}, 'index_info', 'amount', '金额', 'amount', 'sum', NULL, NULL),
+({widget_id}, 'index_info', 'balance', '余额', 'balance', 'sum', NULL, NULL),
+({widget_id}, 'index_info', 'count', '笔数', 'id', 'count', NULL, NULL),
+({widget_id}, 'dimension', 'orgId', '组织', 'org_id', NULL, NULL, NULL),
+({widget_id}, 'dimension', 'month', '月份', 'month', NULL, NULL, NULL),
+({widget_id}, 'orders', 'amount', '金额', 'amount', NULL, NULL, NULL);"""
         
         self.sql_text.delete(1.0, tk.END)
         self.sql_text.insert(tk.END, example_sql)
-        self.log("已加载示例 SQL", "INFO")
+        self.log(f"已加载示例 SQL（数据源ID: {widget_id}）", "INFO")
     
     def load_sql_from_file(self):
         """从文件加载 SQL"""
@@ -312,6 +314,15 @@ INSERT INTO rpt_data_source_field (data_source_id, type, code, name, field, agg_
         widget_id = self.widget_id_var.get()
         widget_name = self.widget_name_var.get()
         
+        # 替换 INSERT 语句中的 data_source_id 为当前输入的值
+        # 匹配格式: (123, 'filter', ...) 或 (数字, 'type', ...)
+        import re
+        sql_content = re.sub(
+            r'\((\d+),\s*([\'"](?:filter|index_info|dimension|orders)[\'"])',
+            f'({widget_id}, \\2',
+            sql_content
+        )
+        
         # 添加注释
         full_content = f"-- 数据源ID: {widget_id}\n-- 数据源名称: {widget_name}\n\n{sql_content}"
         
@@ -326,6 +337,7 @@ INSERT INTO rpt_data_source_field (data_source_id, type, code, name, field, agg_
                 f.write(full_content)
             
             self.log(f"SQL 配置已保存: {file_path}", "SUCCESS")
+            self.log(f"数据源ID 已更新为: {widget_id}", "INFO")
             messagebox.showinfo("成功", f"配置已保存到:\n{file_path}")
             
             # 刷新列表
