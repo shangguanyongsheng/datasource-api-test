@@ -103,6 +103,9 @@ class DataSourceTestGUI:
         self.ds_listbox = tk.Listbox(list_frame, height=6, font=('Consolas', 10))
         self.ds_listbox.pack(side=tk.LEFT, fill=tk.X, expand=True)
         
+        # 绑定选择事件，选中时自动加载到左侧
+        self.ds_listbox.bind('<<ListboxSelect>>', self.on_datasource_select)
+        
         scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=self.ds_listbox.yview)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         self.ds_listbox.config(yscrollcommand=scrollbar.set)
@@ -374,6 +377,35 @@ INSERT INTO rpt_data_source_field (data_source_id, type, code, name, field, agg_
                     self.ds_listbox.insert(tk.END, sql_file.stem)
         
         self.log(f"已加载 {self.ds_listbox.size()} 个数据源配置", "INFO")
+    
+    def on_datasource_select(self, event):
+        """数据源列表选择事件 - 自动加载到左侧编辑区"""
+        selection = self.ds_listbox.curselection()
+        if not selection:
+            return
+        
+        item = self.ds_listbox.get(selection[0])
+        # 解析 widget_id（格式：datasource_76 - 授信用信单位统计）
+        parts = item.split(" - ", 1)
+        widget_id = parts[0].replace("datasource_", "")
+        widget_name = parts[1] if len(parts) > 1 else ""
+        
+        # 更新左侧的 ID 和名称
+        self.widget_id_var.set(widget_id)
+        self.widget_name_var.set(widget_name)
+        
+        # 加载 SQL 文件内容
+        sql_file = PROJECT_ROOT / "config" / "sql_input" / f"datasource_{widget_id}.sql"
+        if sql_file.exists():
+            try:
+                with open(sql_file, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                
+                self.sql_text.delete(1.0, tk.END)
+                self.sql_text.insert(tk.END, content)
+                self.log(f"已加载数据源: {widget_id} - {widget_name}", "SUCCESS")
+            except Exception as e:
+                self.log(f"加载失败: {e}", "ERROR")
     
     def delete_datasource(self):
         """删除选中的数据源"""
