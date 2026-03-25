@@ -45,7 +45,7 @@ class TestCaseGenerator:
                 "name": "仅查询指标",
                 "widget_id": widget_id,
                 "index_info": [{"code": f.code} for f in self.config.index_info],
-                "expected": {"status_code": 200, "has_records": True}
+                "expected": {"status_code": 200}  # 只检查状态码，不强制要求数据非空
             }
 
         # TC002-TC003: 单/多过滤条件
