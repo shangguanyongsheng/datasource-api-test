@@ -11,10 +11,11 @@ auth:
   token: ""  # 如需要可配置
 
 # 当前测试的数据源ID（只运行这一个）
-current_widget_id: 123
+current_widget_id: 76
 
 # 数据库配置（用于数据校验）
 database:
+  enabled: false  # 是否启用数据库验证
   host: "localhost"
   port: 3306
   database: "cfs_report"

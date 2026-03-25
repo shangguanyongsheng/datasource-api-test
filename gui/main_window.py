@@ -178,6 +178,14 @@ class DataSourceTestGUI:
         ttk.Entry(max_fail_frame, textvariable=self.max_fail_var, width=5).pack(side=tk.LEFT, padx=5)
         ttk.Label(max_fail_frame, text="(0=不限制，出错继续执行)").pack(side=tk.LEFT)
         
+        # 数据库验证选项
+        self.db_validate_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            error_frame, 
+            text="启用数据库验证（对比数据库数据）", 
+            variable=self.db_validate_var
+        ).pack(anchor=tk.W, pady=(5, 0))
+        
         # 运行按钮
         run_frame = ttk.Frame(right_panel)
         run_frame.pack(fill=tk.X, pady=(0, 10))
@@ -227,10 +235,12 @@ class DataSourceTestGUI:
                 if config:
                     env = config.get('environment', {})
                     auth = config.get('auth', {})
+                    database = config.get('database', {})
                     
                     self.base_url_var.set(env.get('base_url', 'http://localhost:8080'))
                     self.tenant_id_var.set(auth.get('tenant_id', 'tenant_001'))
                     self.user_id_var.set(str(auth.get('user_id', 1001)))
+                    self.db_validate_var.set(database.get('enabled', False))
                     
                     self.log("配置加载成功", "SUCCESS")
             except Exception as e:
@@ -249,6 +259,14 @@ class DataSourceTestGUI:
                 'user_id': int(self.user_id_var.get())
             },
             'current_widget_id': int(self.widget_id_var.get()),  # 当前选中的数据源ID
+            'database': {
+                'enabled': self.db_validate_var.get(),  # 数据库验证开关
+                'host': 'localhost',
+                'port': 3306,
+                'database': 'cfs_report',
+                'user': 'root',
+                'password': 'password'
+            },
             'report': {
                 'output_dir': 'reports/html',
                 'title': '数据源查询接口测试报告'
