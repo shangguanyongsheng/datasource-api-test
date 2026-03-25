@@ -41,17 +41,13 @@ class DataQueryAPI:
         payload = {
             "widgetId": widget_id,
             "tenantId": tenant_id,
-            "userId": user_id
+            "userId": user_id,
+            # 始终传递这些字段，即使为空也传空列表
+            "filters": filters if filters is not None else [],
+            "indexInfo": index_info if index_info is not None else [],
+            "dimensions": dimensions if dimensions is not None else [],
+            "orders": orders if orders is not None else []
         }
-
-        if filters:
-            payload["filters"] = filters
-        if index_info:
-            payload["indexInfo"] = index_info
-        if dimensions:
-            payload["dimensions"] = dimensions
-        if orders:
-            payload["orders"] = orders
 
         # 添加其他参数
         payload.update(kwargs)

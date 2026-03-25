@@ -30,9 +30,10 @@ class APIClient:
 
     def post(self, endpoint: str, data: Dict[str, Any]) -> requests.Response:
         """发送POST请求"""
+        import json
         url = f"{self.base_url}{endpoint}"
         logger.info(f"POST {url}")
-        logger.debug(f"Request: {data}")
+        logger.debug(f"Request: {json.dumps(data, ensure_ascii=False)}")
 
         response = self.session.post(url, json=data, timeout=self.timeout)
 
