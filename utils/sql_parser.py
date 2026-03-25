@@ -49,6 +49,14 @@ class SQLParser:
         """
         解析INSERT语句，提取字段配置
 
+        支持两种格式：
+        1. 简化格式（8字段）：
+           INSERT INTO table (data_source_id, type, code, name, field, agg_type, filter_condition, component_code) VALUES
+           (123, 'filter', 'orgId', '组织', 'org_id', NULL, 'in', 'tree-select');
+
+        2. 完整格式（26字段）：
+           INSERT INTO `db`.`table` (`id`, `data_source_id`, `type`, `code`, ...) VALUES (1, 76, 'filter', 'bizType', ...);
+
         Args:
             sql: INSERT INTO ... VALUES ...
 
@@ -58,51 +66,186 @@ class SQLParser:
         fields = []
 
         logger.info(f"开始解析 SQL，内容长度: {len(sql)} 字符")
-        logger.debug(f"SQL 内容预览: {sql[:200]}...")
 
-        # 提取数据源ID（从第一条记录获取）
-        ds_id_match = re.search(r'\((\d+),\s*[\'"]filter[\'"]', sql)
-        if not ds_id_match:
-            ds_id_match = re.search(r'\((\d+),\s*[\'"]index_info[\'"]', sql)
-        if not ds_id_match:
-            ds_id_match = re.search(r'\((\d+),\s*[\'"]index_info[\'"]', sql)
+        # 找到所有 INSERT ... VALUES (...) 语句
+        # 使用逐字符解析，正确处理嵌套括号和引号
+        i = 0
+        while i < len(sql):
+            # 找到 INSERT 关键字
+            insert_pos = sql.upper().find('INSERT', i)
+            if insert_pos == -1:
+                break
 
-        data_source_id = int(ds_id_match.group(1)) if ds_id_match else 0
-        logger.info(f"提取到的数据源ID: {data_source_id}")
+            # 找到 VALUES 关键字
+            values_pos = sql.upper().find('VALUES', insert_pos)
+            if values_pos == -1:
+                break
 
-        # 匹配 VALUES 后面的每一行数据
-        # 格式: (123, 'filter', 'orgId', '组织', 'org_id', NULL, 'in', 'tree-select')
-        value_pattern = r"\((\d+),\s*'([^']+)',\s*'([^']+)',\s*'([^']+)',\s*(?:'([^']+)'|NULL),\s*(?:'([^']+)'|NULL),\s*(?:'([^']+)'|NULL),\s*(?:'([^']+)'|NULL)\)"
+            # 找到 VALUES 后面的左括号
+            paren_start = sql.find('(', values_pos)
+            if paren_start == -1:
+                break
 
-        matches = re.findall(value_pattern, sql)
-        logger.info(f"正则匹配到 {len(matches)} 条记录")
+            # 找到匹配的右括号（考虑嵌套和引号）
+            paren_end = self._find_matching_paren(sql, paren_start)
+            if paren_end == -1:
+                break
 
-        for match in matches:
-            field = DataSourceField(
-                data_source_id=int(match[0]),
-                type=match[1],
-                code=match[2],
-                name=match[3],
-                field=match[4] if match[4] else None,
-                agg_type=match[5] if match[5] else None,
-                filter_condition=match[6] if match[6] else None,
-                component_code=match[7] if match[7] else None
-            )
-            fields.append(field)
+            # 提取 VALUES 中的内容
+            values_str = sql[paren_start + 1:paren_end]
+
+            # 解析字段值
+            values = self._parse_values(values_str)
+
+            if len(values) >= 4:
+                # 根据字段数量判断格式
+                if len(values) == 8:
+                    # 简化格式
+                    field = DataSourceField(
+                        data_source_id=int(values[0]),
+                        type=values[1],
+                        code=values[2],
+                        name=values[3],
+                        field=values[4] if values[4] else None,
+                        agg_type=values[5] if values[5] else None,
+                        filter_condition=values[6] if values[6] else None,
+                        component_code=values[7] if values[7] else None
+                    )
+                else:
+                    # 完整格式（26字段）
+                    # 字段顺序：id, data_source_id, type, code, decimal_places, code_alias, field, ...
+                    # 索引：     0    1               2     3     4               5           6      ...
+                    field = DataSourceField(
+                        data_source_id=int(values[1]),  # 第2个字段
+                        type=values[2],                  # 第3个字段
+                        code=values[3],                  # 第4个字段
+                        name=values[10] if len(values) > 10 and values[10] else values[3],  # name 在第11位
+                        field=values[6] if len(values) > 6 and values[6] else None,
+                        agg_type=values[8] if len(values) > 8 and values[8] else None,
+                        filter_condition=values[24] if len(values) > 24 and values[24] else None,
+                        component_code=values[12] if len(values) > 12 and values[12] else None
+                    )
+
+                fields.append(field)
+                logger.debug(f"解析字段: data_source_id={field.data_source_id}, type={field.type}, code={field.code}")
+
+            i = paren_end + 1
 
         logger.info(f"解析SQL完成，共 {len(fields)} 个字段配置")
-        
-        # 如果没有匹配到，尝试诊断问题
-        if not matches:
-            logger.warning("未匹配到任何字段，可能的原因：")
-            logger.warning("  1. SQL 格式不正确")
-            logger.warning("  2. 类型字段值不在 [filter, index_info, index_info, dimension, orders] 中")
-            logger.warning("  3. 字段使用了双引号而非单引号")
-            # 检查是否有 INSERT 语句
-            if 'INSERT' not in sql.upper():
-                logger.warning("  4. 文件中没有 INSERT 语句")
-
         return fields
+
+    def _find_matching_paren(self, sql: str, start: int) -> int:
+        """
+        找到匹配的右括号位置
+
+        Args:
+            sql: SQL 字符串
+            start: 左括号位置
+
+        Returns:
+            匹配的右括号位置，未找到返回 -1
+        """
+        depth = 0
+        in_string = False
+        string_char = None
+        i = start
+
+        while i < len(sql):
+            char = sql[i]
+
+            if in_string:
+                if char == string_char:
+                    # 检查是否是转义引号
+                    if i + 1 < len(sql) and sql[i + 1] == string_char:
+                        i += 1
+                    else:
+                        in_string = False
+            else:
+                if char in ("'", '"'):
+                    in_string = True
+                    string_char = char
+                elif char == '(':
+                    depth += 1
+                elif char == ')':
+                    depth -= 1
+                    if depth == 0:
+                        return i
+
+            i += 1
+
+        return -1
+
+    def _parse_values(self, values_str: str) -> List[Optional[str]]:
+        """
+        解析 VALUES 中的字段值
+
+        处理：NULL, 数字, 字符串(单引号), JSON字符串
+
+        Args:
+            values_str: "29240, 76, 'filter', 'bizType', NULL, ..."
+
+        Returns:
+            ['29240', '76', 'filter', 'bizType', None, ...]
+        """
+        result = []
+        current = ""
+        in_string = False
+        string_char = None
+        last_was_string_end = False  # 标记上一个字符是否是字符串结束
+        i = 0
+
+        while i < len(values_str):
+            char = values_str[i]
+
+            if in_string:
+                if char == string_char:
+                    # 检查是否是转义引号 ''
+                    if i + 1 < len(values_str) and values_str[i + 1] == string_char:
+                        current += char
+                        i += 1
+                    else:
+                        in_string = False
+                        last_was_string_end = True
+                        # 字符串值直接添加到结果，不等到逗号
+                        result.append(current)
+                        current = ""
+                else:
+                    current += char
+            else:
+                if char in ("'", '"'):
+                    in_string = True
+                    string_char = char
+                    current = ""
+                    last_was_string_end = False
+                elif char == ',':
+                    # 分隔符
+                    if not last_was_string_end:
+                        # 只有当上一个不是字符串结束时才处理 current
+                        value = current.strip()
+                        if value.upper() == 'NULL':
+                            result.append(None)
+                        elif value:
+                            result.append(value)
+                        else:
+                            result.append(None)
+                    # 重置状态
+                    current = ""
+                    last_was_string_end = False
+                elif char not in (' ', '\t', '\n', '\r'):
+                    current += char
+                    last_was_string_end = False
+
+            i += 1
+
+        # 处理最后一个值
+        if not last_was_string_end:
+            value = current.strip()
+            if value.upper() == 'NULL':
+                result.append(None)
+            elif value:
+                result.append(value)
+
+        return result
 
     def parse_sql_file(self, file_path: str) -> List[DataSourceField]:
         """
