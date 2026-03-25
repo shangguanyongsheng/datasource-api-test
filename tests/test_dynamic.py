@@ -1,6 +1,9 @@
 """动态生成的测试用例 - 根据SQL配置自动生成"""
 import pytest
 from utils.assertion import APIAssertion, PaginationAssertion
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class TestDynamicGenerated:
@@ -14,10 +17,14 @@ class TestDynamicGenerated:
         """
         case_id = test_case.get("case_id")
         case_name = test_case.get("name")
+        widget_id = test_case.get("widget_id")
+
+        # 记录当前测试的数据源
+        logger.info(f"测试数据源 ID: {widget_id}")
 
         # 构建请求参数
         request_params = {
-            "widget_id": test_case["widget_id"],
+            "widget_id": widget_id,
             "tenant_id": default_params['tenant_id'],
             "user_id": default_params['user_id']
         }
