@@ -57,18 +57,25 @@ class SQLParser:
         """
         fields = []
 
+        logger.info(f"开始解析 SQL，内容长度: {len(sql)} 字符")
+        logger.debug(f"SQL 内容预览: {sql[:200]}...")
+
         # 提取数据源ID（从第一条记录获取）
         ds_id_match = re.search(r'\((\d+),\s*[\'"]filter[\'"]', sql)
         if not ds_id_match:
             ds_id_match = re.search(r'\((\d+),\s*[\'"]index_info[\'"]', sql)
+        if not ds_id_match:
+            ds_id_match = re.search(r'\((\d+),\s*[\'"]index_info[\'"]', sql)
 
         data_source_id = int(ds_id_match.group(1)) if ds_id_match else 0
+        logger.info(f"提取到的数据源ID: {data_source_id}")
 
         # 匹配 VALUES 后面的每一行数据
         # 格式: (123, 'filter', 'orgId', '组织', 'org_id', NULL, 'in', 'tree-select')
         value_pattern = r"\((\d+),\s*'([^']+)',\s*'([^']+)',\s*'([^']+)',\s*(?:'([^']+)'|NULL),\s*(?:'([^']+)'|NULL),\s*(?:'([^']+)'|NULL),\s*(?:'([^']+)'|NULL)\)"
 
         matches = re.findall(value_pattern, sql)
+        logger.info(f"正则匹配到 {len(matches)} 条记录")
 
         for match in matches:
             field = DataSourceField(
@@ -84,6 +91,17 @@ class SQLParser:
             fields.append(field)
 
         logger.info(f"解析SQL完成，共 {len(fields)} 个字段配置")
+        
+        # 如果没有匹配到，尝试诊断问题
+        if not matches:
+            logger.warning("未匹配到任何字段，可能的原因：")
+            logger.warning("  1. SQL 格式不正确")
+            logger.warning("  2. 类型字段值不在 [filter, index_info, index_info, dimension, orders] 中")
+            logger.warning("  3. 字段使用了双引号而非单引号")
+            # 检查是否有 INSERT 语句
+            if 'INSERT' not in sql.upper():
+                logger.warning("  4. 文件中没有 INSERT 语句")
+
         return fields
 
     def parse_sql_file(self, file_path: str) -> List[DataSourceField]:
