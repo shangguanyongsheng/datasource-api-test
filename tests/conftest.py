@@ -272,6 +272,46 @@ def pytest_collection_modifyitems(config, items):
 
 # ============ 测试报告增强：显示完整请求/响应 ============
 
+# 存储每个测试的响应信息（用于报告）
+_test_response_info = {}
+
+
+def pytest_html_results_table_header(cells):
+    """添加自定义表头"""
+    cells.insert(3, '<th>数据量</th>')
+    cells.insert(4, '<th>备注</th>')
+
+
+def pytest_html_results_table_row(report, cells):
+    """添加自定义列内容"""
+    # 获取测试的响应信息
+    test_name = getattr(report, 'nodeid', '')
+    response_info = _test_response_info.get(test_name, {})
+    
+    # 数据量列
+    data_count = response_info.get('data_count', '-')
+    total = response_info.get('total', None)
+    status = response_info.get('status', '')
+    
+    if status == 'success_zero':
+        # 成功但 total=0，黄色警告
+        cells.insert(3, f'<td style="color: #d97706; font-weight: bold;">{data_count} (total=0)</td>')
+    elif status == 'success_with_data':
+        # 成功且有数据，绿色
+        cells.insert(3, f'<td style="color: #059669;">{data_count}</td>')
+    elif status == 'failed':
+        # 失败，红色
+        cells.insert(3, f'<td style="color: #dc2626;">请求失败</td>')
+    else:
+        cells.insert(3, f'<td>{data_count}</td>')
+    
+    # 备注列
+    remark = response_info.get('remark', '')
+    if status == 'success_zero':
+        remark = '⚠️ 返回数据为空'
+    cells.insert(4, f'<td>{remark}</td>')
+
+
 @pytest.hookimpl(hookwrapper=True)
 def pytest_runtest_makereport(item, call):
     """在测试报告中添加完整的请求和响应信息"""
@@ -286,7 +326,56 @@ def pytest_runtest_makereport(item, call):
             request_info = get_last_request_info()
             
             if request_info:
-                # 格式化请求/响应信息
+                # 解析响应
+                response_body = request_info.get('response_body', '')
+                response_status = request_info.get('response_status', 0)
+                
+                # 分析响应数据
+                data_count = '-'
+                total = None
+                status = ''
+                remark = ''
+                
+                if response_status == 200:
+                    try:
+                        import json
+                        parsed = json.loads(response_body)
+                        
+                        # 获取 total
+                        if isinstance(parsed, dict):
+                            total = parsed.get('total', 0)
+                            data = parsed.get('data', {})
+                            
+                            # 计算 data_count
+                            if isinstance(data, dict):
+                                records = data.get('records', [])
+                                data_count = len(records)
+                            elif isinstance(data, list):
+                                data_count = len(data)
+                            
+                            # 判断状态
+                            if total == 0:
+                                status = 'success_zero'
+                                remark = f'响应成功，但 total=0，records={data_count}'
+                            else:
+                                status = 'success_with_data'
+                                remark = f'total={total}, records={data_count}'
+                    except:
+                        status = 'parse_error'
+                        remark = '响应解析失败'
+                else:
+                    status = 'failed'
+                    remark = f'HTTP {response_status}'
+                
+                # 存储响应信息（用于报告表格）
+                _test_response_info[item.nodeid] = {
+                    'data_count': data_count,
+                    'total': total,
+                    'status': status,
+                    'remark': remark
+                }
+                
+                # 格式化请求/响应信息（用于详情展开）
                 extra_info = []
                 extra_info.append(f"\n{'='*60}")
                 extra_info.append("📤 请求信息")
@@ -302,9 +391,8 @@ def pytest_runtest_makereport(item, call):
                 extra_info.append(f"\n{'='*60}")
                 extra_info.append("📥 响应信息")
                 extra_info.append(f"{'='*60}")
-                extra_info.append(f"状态码: {request_info.get('response_status', 'N/A')}")
+                extra_info.append(f"状态码: {response_status}")
                 
-                response_body = request_info.get('response_body', '')
                 if response_body:
                     # 尝试格式化 JSON
                     try:
@@ -314,6 +402,12 @@ def pytest_runtest_makereport(item, call):
                         extra_info.append(f"\n响应体:\n{formatted}")
                     except:
                         extra_info.append(f"\n响应体:\n{response_body}")
+                
+                # 添加数据量摘要
+                extra_info.append(f"\n{'='*60}")
+                extra_info.append("📊 数据摘要")
+                extra_info.append(f"{'='*60}")
+                extra_info.append(f"状态: {remark}")
                 
                 extra_info.append(f"\n{'='*60}")
                 
