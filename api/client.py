@@ -18,7 +18,8 @@ def get_last_request_info() -> Dict[str, Any]:
 class APIClient:
     """HTTP客户端基类"""
 
-    def __init__(self, base_url: str, timeout: Union[int, Tuple[int, int]] = (10, 30)):
+    def __init__(self, base_url: str, timeout: Union[int, Tuple[int, int]] = (10, 30),
+                 truncate_config: Optional[Dict[str, Any]] = None):
         """
         初始化客户端
         
@@ -28,6 +29,10 @@ class APIClient:
                 - int: 连接和读取超时都是这个值（秒）
                 - (connect_timeout, read_timeout): 分别设置连接和读取超时
                 默认 (10, 30) 表示连接超时 10 秒，读取超时 30 秒
+            truncate_config: 响应截断配置，避免大数据导致内存问题
+                - enabled: 是否启用截断（默认 True）
+                - max_records: 最多保留的记录数（默认 100）
+                - max_size_kb: 响应体大小阈值 KB（默认 100）
         """
         self.base_url = base_url.rstrip('/')
         
@@ -37,13 +42,20 @@ class APIClient:
         else:
             self.timeout = timeout
         
+        # 响应截断配置
+        self.truncate_config = truncate_config or {
+            'enabled': True,
+            'max_records': 100,
+            'max_size_kb': 100
+        }
+        
         self.session = requests.Session()
         self.session.headers.update({
             'Content-Type': 'application/json',
             'Accept': 'application/json'
         })
         
-        logger.info(f"API客户端初始化: base_url={self.base_url}, timeout={self.timeout}")
+        logger.info(f"API客户端初始化: base_url={self.base_url}, timeout={self.timeout}, truncate={self.truncate_config}")
 
     def set_auth(self, tenant_id: str, user_id: int, token: Optional[str] = None):
         """设置认证信息"""
@@ -82,10 +94,13 @@ class APIClient:
             logger.error(error_msg)
             raise ConnectionError(error_msg) from e
 
-        # 记录完整响应
+        # 记录响应
         response_body = response.text
         logger.info(f"响应状态码: {response.status_code}")
-        logger.info(f"响应体:\n{response_body}")
+        
+        # 智能处理响应体（避免大响应导致内存问题）
+        stored_response_body = self._smart_truncate_response(response_body)
+        logger.info(f"响应体:\n{stored_response_body}")
 
         # 存储请求详情（用于测试报告）
         _last_request_info = {
@@ -93,7 +108,7 @@ class APIClient:
             "method": "POST",
             "request_body": request_body,
             "response_status": response.status_code,
-            "response_body": response_body,
+            "response_body": stored_response_body,
             "response_headers": dict(response.headers)
         }
 
@@ -125,7 +140,88 @@ class APIClient:
 
         response_body = response.text
         logger.info(f"响应状态码: {response.status_code}")
-        logger.info(f"响应体:\n{response_body}")
+        
+        # 智能处理响应体
+        stored_response_body = self._smart_truncate_response(response_body)
+        logger.info(f"响应体:\n{stored_response_body}")
+
+        # 存储请求详情
+        _last_request_info = {
+            "url": url,
+            "method": "GET",
+            "request_params": params,
+            "response_status": response.status_code,
+            "response_body": stored_response_body,
+            "response_headers": dict(response.headers)
+        }
+
+        return response
+    
+    def _smart_truncate_response(self, response_body: str) -> str:
+        """
+        智能截断响应体，避免大数据导致内存问题
+        
+        当响应数据量大时，只保留摘要信息：
+        - total、records 数量
+        - 前 N 条 records
+        
+        Returns:
+            处理后的响应体
+        """
+        import json
+        
+        # 获取配置
+        config = self.truncate_config
+        if not config.get('enabled', True):
+            return response_body
+        
+        max_records = config.get('max_records', 100)
+        max_size_kb = config.get('max_size_kb', 100)
+        
+        # 检查大小
+        size_kb = len(response_body) / 1024
+        if size_kb <= max_size_kb:
+            return response_body
+        
+        # 尝试解析 JSON 并截断
+        try:
+            data = json.loads(response_body)
+            
+            # 检查是否有 records 字段
+            if isinstance(data, dict) and 'data' in data:
+                inner_data = data['data']
+                
+                if isinstance(inner_data, dict) and 'records' in inner_data:
+                    records = inner_data['records']
+                    total = inner_data.get('total', len(records))
+                    
+                    if isinstance(records, list) and len(records) > max_records:
+                        # 截断 records
+                        truncated_records = records[:max_records]
+                        
+                        # 构建摘要响应
+                        truncated_data = {
+                            "code": data.get('code'),
+                            "message": data.get('message'),
+                            "data": {
+                                "total": total,
+                                "size": inner_data.get('size', 10),
+                                "current": inner_data.get('current', 1),
+                                "records_count": len(records),
+                                "records": truncated_records,
+                                "_truncated": True,
+                                "_truncated_msg": f"数据量过大({len(records)}条，{size_kb:.1f}KB)，已截断只显示前{max_records}条"
+                            }
+                        }
+                        
+                        logger.warning(f"响应数据量过大({len(records)}条，{size_kb:.1f}KB)，已截断")
+                        return json.dumps(truncated_data, ensure_ascii=False, indent=2)
+        
+        except (json.JSONDecodeError, TypeError):
+            pass
+        
+        # 如果无法解析或不需要截断，返回原始响应
+        return response_body
 
         # 存储请求详情
         _last_request_info = {

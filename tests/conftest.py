@@ -115,11 +115,19 @@ def api_client(config):
     else:
         timeout = timeout_config  # int
     
-    logger.info(f"API 客户端超时配置: {timeout}")
+    # 获取响应截断配置
+    truncate_config = config['environment'].get('response_truncate', {
+        'enabled': True,
+        'max_records': 100,
+        'max_size_kb': 100
+    })
+    
+    logger.info(f"API 客户端配置: timeout={timeout}, truncate={truncate_config}")
     
     client = APIClient(
         base_url=config['environment']['base_url'],
-        timeout=timeout
+        timeout=timeout,
+        truncate_config=truncate_config
     )
 
     # 设置认证
