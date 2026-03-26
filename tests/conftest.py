@@ -181,7 +181,7 @@ def test_case_generator(data_source_config):
 
 @pytest.fixture(autouse=True)
 def log_test_info(request):
-    """自动记录测试信息"""
+    """自动记录测试信息和响应时长"""
     logger.info(f"开始执行: {request.node.name}")
     start_time = time.time()
 
@@ -189,6 +189,10 @@ def log_test_info(request):
 
     elapsed = time.time() - start_time
     logger.info(f"执行完成: {request.node.name}, 耗时: {elapsed:.2f}s")
+    
+    # 存储响应时长（用于报告）
+    if not hasattr(request.node, '_test_duration'):
+        request.node._test_duration = elapsed
 
 
 # ============ 参数化测试用例生成 ============
@@ -286,7 +290,8 @@ _test_response_info = {}
 def pytest_html_results_table_header(cells):
     """添加自定义表头"""
     cells.insert(3, '<th>数据量</th>')
-    cells.insert(4, '<th>备注</th>')
+    cells.insert(4, '<th>耗时</th>')
+    cells.insert(5, '<th>备注</th>')
 
 
 def pytest_html_results_table_row(report, cells):
@@ -295,28 +300,37 @@ def pytest_html_results_table_row(report, cells):
     test_name = getattr(report, 'nodeid', '')
     response_info = _test_response_info.get(test_name, {})
     
-    # 数据量列
-    data_count = response_info.get('data_count', '-')
-    total = response_info.get('total', None)
+    # 数据量列 - 显示原始 total 或 records_count
+    data_count = response_info.get('total') or response_info.get('data_count', '-')
     status = response_info.get('status', '')
     
     if status == 'success_zero':
         # 成功但 total=0，黄色警告
-        cells.insert(3, f'<td style="color: #d97706; font-weight: bold;">{data_count} (total=0)</td>')
+        cells.insert(3, f'<td style="color: #d97706; font-weight: bold;">0</td>')
     elif status == 'success_with_data':
         # 成功且有数据，绿色
         cells.insert(3, f'<td style="color: #059669;">{data_count}</td>')
     elif status == 'failed':
         # 失败，红色
-        cells.insert(3, f'<td style="color: #dc2626;">请求失败</td>')
+        cells.insert(3, f'<td style="color: #dc2626;">-</td>')
     else:
         cells.insert(3, f'<td>{data_count}</td>')
+    
+    # 耗时列 - 自动切换单位
+    duration = response_info.get('duration', 0)
+    if duration >= 1:
+        duration_str = f'{duration:.2f}s'
+    elif duration >= 0.001:
+        duration_str = f'{duration * 1000:.0f}ms'
+    else:
+        duration_str = f'{duration * 1000000:.0f}μs'
+    cells.insert(4, f'<td>{duration_str}</td>')
     
     # 备注列
     remark = response_info.get('remark', '')
     if status == 'success_zero':
         remark = '⚠️ 返回数据为空'
-    cells.insert(4, f'<td>{remark}</td>')
+    cells.insert(5, f'<td>{remark}</td>')
 
 
 @pytest.hookimpl(hookwrapper=True)
@@ -327,6 +341,9 @@ def pytest_runtest_makereport(item, call):
     
     # 只在测试调用阶段处理（不是 setup 或 teardown）
     if call.when == "call":
+        # 获取响应时长
+        duration = getattr(item, '_test_duration', call.duration if hasattr(call, 'duration') else 0)
+        
         # 获取最后一次请求的信息
         try:
             from api.client import get_last_request_info
@@ -338,8 +355,7 @@ def pytest_runtest_makereport(item, call):
                 response_status = request_info.get('response_status', 0)
                 
                 # 分析响应数据
-                data_count = '-'
-                total = None
+                total_count = None  # 原始数据总量
                 status = ''
                 remark = ''
                 
@@ -348,25 +364,26 @@ def pytest_runtest_makereport(item, call):
                         import json
                         parsed = json.loads(response_body)
                         
-                        # 获取 total
                         if isinstance(parsed, dict):
-                            total = parsed.get('total', 0)
                             data = parsed.get('data', {})
                             
-                            # 计算 data_count
+                            # 优先获取 records_count（截断后的统计），然后是 total
                             if isinstance(data, dict):
-                                records = data.get('records', [])
-                                data_count = len(records)
+                                # 检查是否被截断
+                                if data.get('_truncated'):
+                                    total_count = data.get('records_count', data.get('total', 0))
+                                    remark = f'⚠️ 已截断，原始 {total_count} 条'
+                                else:
+                                    total_count = data.get('total', len(data.get('records', [])))
+                                    records_count = len(data.get('records', []))
+                                    remark = f'total={total_count}, records={records_count}'
+                                
+                                status = 'success_zero' if total_count == 0 else 'success_with_data'
                             elif isinstance(data, list):
-                                data_count = len(data)
+                                total_count = len(data)
+                                status = 'success_zero' if total_count == 0 else 'success_with_data'
+                                remark = f'records={total_count}'
                             
-                            # 判断状态
-                            if total == 0:
-                                status = 'success_zero'
-                                remark = f'响应成功，但 total=0，records={data_count}'
-                            else:
-                                status = 'success_with_data'
-                                remark = f'total={total}, records={data_count}'
                     except:
                         status = 'parse_error'
                         remark = '响应解析失败'
@@ -376,10 +393,11 @@ def pytest_runtest_makereport(item, call):
                 
                 # 存储响应信息（用于报告表格）
                 _test_response_info[item.nodeid] = {
-                    'data_count': data_count,
-                    'total': total,
+                    'total': total_count,
+                    'data_count': total_count,  # 兼容
                     'status': status,
-                    'remark': remark
+                    'remark': remark,
+                    'duration': duration
                 }
                 
                 # 格式化请求/响应信息（用于详情展开）
@@ -416,6 +434,13 @@ def pytest_runtest_makereport(item, call):
                 extra_info.append("📊 数据摘要")
                 extra_info.append(f"{'='*60}")
                 extra_info.append(f"状态: {remark}")
+                
+                # 响应时长
+                if duration >= 1:
+                    duration_str = f'{duration:.2f}s'
+                else:
+                    duration_str = f'{duration * 1000:.0f}ms'
+                extra_info.append(f"耗时: {duration_str}")
                 
                 extra_info.append(f"\n{'='*60}")
                 
