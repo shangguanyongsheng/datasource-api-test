@@ -117,7 +117,6 @@ def api_client(config):
     
     # 获取响应截断配置
     truncate_config = config['environment'].get('response_truncate', {
-        'enabled': True,
         'max_records': 100,
         'max_size_kb': 100
     })
@@ -391,8 +390,15 @@ def pytest_runtest_makereport(item, call):
                 extra_info.append(f"URL: {request_info.get('url', 'N/A')}")
                 extra_info.append(f"方法: {request_info.get('method', 'N/A')}")
                 
-                if request_info.get('request_body'):
-                    extra_info.append(f"\n请求体:\n{request_info['request_body']}")
+                # 请求体（可能是 dict 或字符串）
+                request_body = request_info.get('request_body')
+                if request_body:
+                    if isinstance(request_body, dict):
+                        formatted = json.dumps(request_body, ensure_ascii=False, indent=2)
+                        extra_info.append(f"\n请求体:\n{formatted}")
+                    else:
+                        extra_info.append(f"\n请求体:\n{request_body}")
+                
                 if request_info.get('request_params'):
                     extra_info.append(f"\n请求参数: {request_info['request_params']}")
                 
@@ -401,15 +407,9 @@ def pytest_runtest_makereport(item, call):
                 extra_info.append(f"{'='*60}")
                 extra_info.append(f"状态码: {response_status}")
                 
+                # 响应体（已截断的 JSON 字符串，直接输出）
                 if response_body:
-                    # 尝试格式化 JSON
-                    try:
-                        import json
-                        parsed = json.loads(response_body)
-                        formatted = json.dumps(parsed, ensure_ascii=False, indent=2)
-                        extra_info.append(f"\n响应体:\n{formatted}")
-                    except:
-                        extra_info.append(f"\n响应体:\n{response_body}")
+                    extra_info.append(f"\n响应体:\n{response_body}")
                 
                 # 添加数据量摘要
                 extra_info.append(f"\n{'='*60}")

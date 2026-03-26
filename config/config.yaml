@@ -9,9 +9,8 @@ environment:
   timeout: [10, 60]
   # 响应截断配置（避免大数据导致内存问题）
   response_truncate:
-    enabled: true      # 是否启用截断
-    max_records: 100   # 最多保留的记录数
-    max_size_kb: 100   # 响应体大小阈值（KB），超过此值触发截断
+    max_records: 100   # 最多保留的记录数（超过则截断）
+    max_size_kb: 100   # 响应体大小阈值 KB（超过则截断）
 
 # 认证配置
 auth:

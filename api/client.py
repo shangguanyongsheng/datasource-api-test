@@ -73,11 +73,9 @@ class APIClient:
         global _last_request_info
         
         url = f"{self.base_url}{endpoint}"
-        request_body = json.dumps(data, ensure_ascii=False, indent=2)
         
         logger.info(f"POST {url}")
-        logger.info(f"请求体:\n{request_body}")
-        logger.info(f"超时设置: 连接={self.timeout[0]}s, 读取={self.timeout[1]}s")
+        logger.info(f"请求体: {json.dumps(data, ensure_ascii=False)}")
 
         try:
             response = self.session.post(url, json=data, timeout=self.timeout)
@@ -97,16 +95,16 @@ class APIClient:
         # 记录响应
         response_body = response.text
         logger.info(f"响应状态码: {response.status_code}")
-        
+        logger.info(f"响应体大小: {len(response_body)} 字节")
+
         # 智能处理响应体（避免大响应导致内存问题）
         stored_response_body = self._smart_truncate_response(response_body)
-        logger.info(f"响应体:\n{stored_response_body}")
 
-        # 存储请求详情（用于测试报告）
+        # 存储请求详情（用于测试报告）- 存储原始数据，由报告层格式化
         _last_request_info = {
             "url": url,
             "method": "POST",
-            "request_body": request_body,
+            "request_body": data,  # 存储原始 dict
             "response_status": response.status_code,
             "response_body": stored_response_body,
             "response_headers": dict(response.headers)
@@ -120,8 +118,8 @@ class APIClient:
         
         url = f"{self.base_url}{endpoint}"
         logger.info(f"GET {url}")
-        logger.info(f"请求参数: {params}")
-        logger.info(f"超时设置: 连接={self.timeout[0]}s, 读取={self.timeout[1]}s")
+        if params:
+            logger.info(f"请求参数: {params}")
 
         try:
             response = self.session.get(url, params=params, timeout=self.timeout)
@@ -140,10 +138,10 @@ class APIClient:
 
         response_body = response.text
         logger.info(f"响应状态码: {response.status_code}")
-        
+        logger.info(f"响应体大小: {len(response_body)} 字节")
+
         # 智能处理响应体
         stored_response_body = self._smart_truncate_response(response_body)
-        logger.info(f"响应体:\n{stored_response_body}")
 
         # 存储请求详情
         _last_request_info = {
@@ -166,29 +164,24 @@ class APIClient:
         - 前 N 条 records
         
         Returns:
-            处理后的响应体
+            处理后的响应体（JSON 格式化）
         """
         import json
         
         # 获取配置
-        config = self.truncate_config
-        if not config.get('enabled', True):
-            return response_body
-        
+        config = self.truncate_config or {}
         max_records = config.get('max_records', 100)
         max_size_kb = config.get('max_size_kb', 100)
         
         # 检查大小
         size_kb = len(response_body) / 1024
-        if size_kb <= max_size_kb:
-            return response_body
         
-        # 尝试解析 JSON 并截断
+        # 尝试解析 JSON
         try:
             data = json.loads(response_body)
             
-            # 检查是否有 records 字段
-            if isinstance(data, dict) and 'data' in data:
+            # 检查是否需要截断
+            if size_kb > max_size_kb and isinstance(data, dict) and 'data' in data:
                 inner_data = data['data']
                 
                 if isinstance(inner_data, dict) and 'records' in inner_data:
@@ -215,13 +208,14 @@ class APIClient:
                         }
                         
                         logger.warning(f"响应数据量过大({len(records)}条，{size_kb:.1f}KB)，已截断")
-                        return json.dumps(truncated_data, ensure_ascii=False, indent=2)
+                        data = truncated_data
+            
+            # 统一格式化输出
+            return json.dumps(data, ensure_ascii=False, indent=2)
         
         except (json.JSONDecodeError, TypeError):
-            pass
-        
-        # 如果无法解析或不需要截断，返回原始响应
-        return response_body
+            # 不是 JSON，原样返回
+            return response_body
 
         # 存储请求详情
         _last_request_info = {
