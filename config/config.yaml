@@ -2,7 +2,11 @@
 environment:
   name: "测试环境"
   base_url: "http://localhost:8080"
-  timeout: 30
+  # timeout 支持两种格式：
+  # - int: 连接和读取超时相同，如 timeout: 30 表示都是 30 秒
+  # - [connect, read]: 分别设置，如 [10, 60] 表示连接超时 10 秒，读取超时 60 秒
+  # 推荐使用 [10, 60]，给数据查询更多时间
+  timeout: [10, 60]
 
 # 认证配置
 auth:

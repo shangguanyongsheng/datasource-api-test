@@ -276,7 +276,8 @@ class DataSourceTestGUI:
             'environment': {
                 'name': '测试环境',
                 'base_url': self.base_url_var.get(),
-                'timeout': 30
+                # 使用 [连接超时, 读取超时] 格式，避免卡死
+                'timeout': [10, 60]  # 连接 10 秒，读取 60 秒
             },
             'auth': {
                 'tenant_id': self.tenant_id_var.get(),

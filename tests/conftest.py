@@ -108,9 +108,18 @@ def data_source_configs():
 @pytest.fixture(scope="session")
 def api_client(config):
     """API客户端fixture"""
+    # 处理 timeout 配置：支持 int 或 [connect, read] 格式
+    timeout_config = config['environment'].get('timeout', 30)
+    if isinstance(timeout_config, list) and len(timeout_config) == 2:
+        timeout = tuple(timeout_config)  # (connect_timeout, read_timeout)
+    else:
+        timeout = timeout_config  # int
+    
+    logger.info(f"API 客户端超时配置: {timeout}")
+    
     client = APIClient(
         base_url=config['environment']['base_url'],
-        timeout=config['environment']['timeout']
+        timeout=timeout
     )
 
     # 设置认证
