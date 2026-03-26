@@ -13,10 +13,24 @@ from utils.case_generator import TestCaseGenerator
 logger = get_logger(__name__)
 
 
+def detect_encoding(file_path: str) -> str:
+    """检测文件编码，支持 GBK 等 Windows 编码"""
+    encodings = ['utf-8', 'gbk', 'gb2312', 'gb18030', 'latin-1']
+    for encoding in encodings:
+        try:
+            with open(file_path, 'r', encoding=encoding) as f:
+                f.read()
+            return encoding
+        except UnicodeDecodeError:
+            continue
+    return 'utf-8'
+
+
 def load_config():
     """加载配置文件"""
     config_path = Path(__file__).parent.parent / "config" / "config.yaml"
-    with open(config_path, 'r', encoding='utf-8') as f:
+    encoding = detect_encoding(str(config_path))
+    with open(config_path, 'r', encoding=encoding) as f:
         return yaml.safe_load(f)
 
 
