@@ -12,10 +12,18 @@ def detect_encoding(file_path: str) -> str:
     """
     检测文件编码
     
-    尝试顺序：utf-8 -> gbk -> gb2312 -> latin-1
+    尝试顺序：utf-8-sig (BOM) -> utf-8 -> gbk -> gb2312 -> gb18030 -> latin-1
     """
-    encodings = ['utf-8', 'gbk', 'gb2312', 'gb18030', 'latin-1']
+    # 先检查 BOM
+    try:
+        with open(file_path, 'rb') as f:
+            bom = f.read(3)
+            if bom == b'\xef\xbb\xbf':
+                return 'utf-8-sig'
+    except:
+        pass
     
+    encodings = ['utf-8', 'gbk', 'gb2312', 'gb18030', 'latin-1']
     for encoding in encodings:
         try:
             with open(file_path, 'r', encoding=encoding) as f:
@@ -24,7 +32,6 @@ def detect_encoding(file_path: str) -> str:
         except UnicodeDecodeError:
             continue
     
-    # 默认返回 utf-8
     return 'utf-8'
 
 

@@ -15,8 +15,18 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 
 def detect_encoding(file_path: str) -> str:
-    """检测文件编码，支持 GBK 等 Windows 编码"""
-    encodings = ['utf-8', 'gbk', 'gb2312', 'gb18030', 'latin-1']
+    """检测文件编码，支持 GBK 等 Windows 编码和 UTF-8 BOM"""
+    # 先尝试读取文件开头的 BOM
+    try:
+        with open(file_path, 'rb') as f:
+            bom = f.read(3)
+            if bom == b'\xef\xbb\xbf':
+                return 'utf-8-sig'  # UTF-8 with BOM
+    except:
+        pass
+    
+    # 尝试各种编码
+    encodings = ['utf-8-sig', 'utf-8', 'gbk', 'gb2312', 'gb18030', 'latin-1']
     for encoding in encodings:
         try:
             with open(file_path, 'r', encoding=encoding) as f:
@@ -373,7 +383,8 @@ INSERT INTO rpt_data_source_field (data_source_id, type, code, name, field, agg_
         file_path = sql_dir / f"datasource_{widget_id}.sql"
         
         try:
-            with open(file_path, 'w', encoding='utf-8') as f:
+            # 使用 UTF-8 with BOM 保存，Windows 兼容性更好
+            with open(file_path, 'w', encoding='utf-8-sig') as f:
                 f.write(full_content)
             
             self.log(f"SQL 配置已保存: {file_path}", "SUCCESS")
@@ -520,14 +531,16 @@ INSERT INTO rpt_data_source_field (data_source_id, type, code, name, field, agg_
             
             self.log(f"执行命令: {' '.join(cmd)}", "INFO")
             
-            # 执行测试
+            # 执行测试 - 使用系统默认编码（Windows 是 GBK）
+            import locale
             process = subprocess.Popen(
                 cmd,
                 cwd=str(PROJECT_ROOT),
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
-                encoding='utf-8'
+                encoding=locale.getpreferredencoding(False),  # 使用系统默认编码
+                errors='replace'  # 无法解码时替换字符，而不是抛出异常
             )
             
             # 实时输出日志

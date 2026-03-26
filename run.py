@@ -30,7 +30,16 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 
 def detect_encoding(file_path: str) -> str:
-    """检测文件编码，支持 GBK 等 Windows 编码"""
+    """检测文件编码，支持 GBK 等 Windows 编码和 UTF-8 BOM"""
+    # 先检查 BOM
+    try:
+        with open(file_path, 'rb') as f:
+            bom = f.read(3)
+            if bom == b'\xef\xbb\xbf':
+                return 'utf-8-sig'
+    except:
+        pass
+    
     encodings = ['utf-8', 'gbk', 'gb2312', 'gb18030', 'latin-1']
     for encoding in encodings:
         try:
