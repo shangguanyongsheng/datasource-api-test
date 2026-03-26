@@ -236,3 +236,57 @@ def pytest_collection_modifyitems(config, items):
         except Exception:
             # 忽略获取参数时的异常
             pass
+
+
+# ============ 测试报告增强：显示完整请求/响应 ============
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    """在测试报告中添加完整的请求和响应信息"""
+    outcome = yield
+    report = outcome.get_result()
+    
+    # 只在测试调用阶段处理（不是 setup 或 teardown）
+    if call.when == "call":
+        # 获取最后一次请求的信息
+        try:
+            from api.client import get_last_request_info
+            request_info = get_last_request_info()
+            
+            if request_info:
+                # 格式化请求/响应信息
+                extra_info = []
+                extra_info.append(f"\n{'='*60}")
+                extra_info.append("📤 请求信息")
+                extra_info.append(f"{'='*60}")
+                extra_info.append(f"URL: {request_info.get('url', 'N/A')}")
+                extra_info.append(f"方法: {request_info.get('method', 'N/A')}")
+                
+                if request_info.get('request_body'):
+                    extra_info.append(f"\n请求体:\n{request_info['request_body']}")
+                if request_info.get('request_params'):
+                    extra_info.append(f"\n请求参数: {request_info['request_params']}")
+                
+                extra_info.append(f"\n{'='*60}")
+                extra_info.append("📥 响应信息")
+                extra_info.append(f"{'='*60}")
+                extra_info.append(f"状态码: {request_info.get('response_status', 'N/A')}")
+                
+                response_body = request_info.get('response_body', '')
+                if response_body:
+                    # 尝试格式化 JSON
+                    try:
+                        import json
+                        parsed = json.loads(response_body)
+                        formatted = json.dumps(parsed, ensure_ascii=False, indent=2)
+                        extra_info.append(f"\n响应体:\n{formatted}")
+                    except:
+                        extra_info.append(f"\n响应体:\n{response_body}")
+                
+                extra_info.append(f"\n{'='*60}")
+                
+                # 将信息添加到报告中
+                report.sections.append(('API请求/响应详情', '\n'.join(extra_info)))
+                
+        except Exception as e:
+            logger.warning(f"获取请求信息失败: {e}")
