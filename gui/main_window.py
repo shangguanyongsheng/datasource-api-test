@@ -14,6 +14,19 @@ PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 
+def detect_encoding(file_path: str) -> str:
+    """检测文件编码，支持 GBK 等 Windows 编码"""
+    encodings = ['utf-8', 'gbk', 'gb2312', 'gb18030', 'latin-1']
+    for encoding in encodings:
+        try:
+            with open(file_path, 'r', encoding=encoding) as f:
+                f.read()
+            return encoding
+        except UnicodeDecodeError:
+            continue
+    return 'utf-8'
+
+
 class DataSourceTestGUI:
     """数据源接口测试 GUI"""
     
@@ -229,7 +242,8 @@ class DataSourceTestGUI:
         config_path = PROJECT_ROOT / "config" / "config.yaml"
         if config_path.exists():
             try:
-                with open(config_path, 'r', encoding='utf-8') as f:
+                encoding = detect_encoding(str(config_path))
+                with open(config_path, 'r', encoding=encoding) as f:
                     config = yaml.safe_load(f)
                 
                 if config:
@@ -317,12 +331,13 @@ INSERT INTO rpt_data_source_field (data_source_id, type, code, name, field, agg_
         
         if file_path:
             try:
-                with open(file_path, 'r', encoding='utf-8') as f:
+                encoding = detect_encoding(file_path)
+                with open(file_path, 'r', encoding=encoding) as f:
                     content = f.read()
                 
                 self.sql_text.delete(1.0, tk.END)
                 self.sql_text.insert(tk.END, content)
-                self.log(f"已加载文件: {file_path}", "SUCCESS")
+                self.log(f"已加载文件: {file_path} (编码: {encoding})", "SUCCESS")
             except Exception as e:
                 self.log(f"文件加载失败: {e}", "ERROR")
                 messagebox.showerror("错误", f"文件加载失败: {e}")
@@ -387,7 +402,8 @@ INSERT INTO rpt_data_source_field (data_source_id, type, code, name, field, agg_
             for sql_file in sorted(sql_dir.glob("*.sql")):
                 # 尝试读取文件头获取名称
                 try:
-                    with open(sql_file, 'r', encoding='utf-8') as f:
+                    encoding = detect_encoding(str(sql_file))
+                    with open(sql_file, 'r', encoding=encoding) as f:
                         first_lines = [f.readline() for _ in range(3)]
                     
                     name = sql_file.stem
@@ -422,7 +438,8 @@ INSERT INTO rpt_data_source_field (data_source_id, type, code, name, field, agg_
         sql_file = PROJECT_ROOT / "config" / "sql_input" / f"datasource_{widget_id}.sql"
         if sql_file.exists():
             try:
-                with open(sql_file, 'r', encoding='utf-8') as f:
+                encoding = detect_encoding(str(sql_file))
+                with open(sql_file, 'r', encoding=encoding) as f:
                     content = f.read()
                 
                 self.sql_text.delete(1.0, tk.END)

@@ -8,6 +8,26 @@ from utils.logger import get_logger
 logger = get_logger(__name__)
 
 
+def detect_encoding(file_path: str) -> str:
+    """
+    检测文件编码
+    
+    尝试顺序：utf-8 -> gbk -> gb2312 -> latin-1
+    """
+    encodings = ['utf-8', 'gbk', 'gb2312', 'gb18030', 'latin-1']
+    
+    for encoding in encodings:
+        try:
+            with open(file_path, 'r', encoding=encoding) as f:
+                f.read()
+            return encoding
+        except UnicodeDecodeError:
+            continue
+    
+    # 默认返回 utf-8
+    return 'utf-8'
+
+
 @dataclass
 class DataSourceField:
     """数据源字段配置"""
@@ -257,7 +277,11 @@ class SQLParser:
         Returns:
             字段配置列表
         """
-        with open(file_path, 'r', encoding='utf-8') as f:
+        # 自动检测文件编码
+        encoding = detect_encoding(file_path)
+        logger.info(f"检测到文件编码: {encoding}")
+        
+        with open(file_path, 'r', encoding=encoding) as f:
             sql_content = f.read()
 
         return self.parse_insert_statement(sql_content)

@@ -29,6 +29,19 @@ PROJECT_ROOT = Path(__file__).parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 
+def detect_encoding(file_path: str) -> str:
+    """检测文件编码，支持 GBK 等 Windows 编码"""
+    encodings = ['utf-8', 'gbk', 'gb2312', 'gb18030', 'latin-1']
+    for encoding in encodings:
+        try:
+            with open(file_path, 'r', encoding=encoding) as f:
+                f.read()
+            return encoding
+        except UnicodeDecodeError:
+            continue
+    return 'utf-8'
+
+
 def run_gui():
     """启动 GUI 界面"""
     try:
@@ -143,7 +156,8 @@ def list_datasources():
     for sql_file in sorted(sql_dir.glob("*.sql")):
         # 读取名称
         try:
-            with open(sql_file, 'r', encoding='utf-8') as f:
+            encoding = detect_encoding(str(sql_file))
+            with open(sql_file, 'r', encoding=encoding) as f:
                 first_lines = [f.readline() for _ in range(3)]
             
             name = ""
