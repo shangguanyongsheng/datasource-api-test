@@ -1,41 +1,23 @@
-# 环境配置
-environment:
-  name: "测试环境"
-  base_url: "http://localhost:8080"
-  # timeout 支持两种格式：
-  # - int: 连接和读取超时相同，如 timeout: 30 表示都是 30 秒
-  # - [connect, read]: 分别设置，如 [10, 60] 表示连接超时 10 秒，读取超时 60 秒
-  # 推荐使用 [10, 60]，给数据查询更多时间
-  timeout: [10, 60]
-  # 响应截断配置（避免大数据导致内存问题）
-  response_truncate:
-    max_records: 100   # 最多保留的记录数（超过则截断）
-    max_size_kb: 100   # 响应体大小阈值 KB（超过则截断）
-
-# 认证配置
 auth:
-  tenant_id: "tenant_001"
-  user_id: 1001
-  token: ""  # 如需要可配置
-
-# 当前测试的数据源ID（只运行这一个）
-current_widget_id: 76
-
-# 测试用例生成配置
-test_generation:
-  enable_full_combination: false  # 是否启用全量组合测试
-  max_test_cases: 50              # 全量组合执行数量（可在GUI调整）
-
-# 数据库配置（用于数据校验）
+  tenant_id: '705065'
+  user_id: 1812775430580727810
+current_widget_id: 88
 database:
-  enabled: false  # 是否启用数据库验证
-  host: "localhost"
+  database: cfs_report
+  enabled: false
+  host: localhost
+  password: password
   port: 3306
-  database: "cfs_report"
-  user: "root"
-  password: "password"
-
-# 报告配置
+  user: root
+environment:
+  base_url: http://localhost:8110
+  name: 测试环境
+  timeout:
+  - 10
+  - 60
 report:
-  output_dir: "reports/html"
-  title: "数据源查询接口测试报告"
+  output_dir: reports/html
+  title: 数据源查询接口测试报告
+test_generation:
+  enable_full_combination: true
+  max_test_cases: 100
