@@ -21,6 +21,11 @@ auth:
 # 当前测试的数据源ID（只运行这一个）
 current_widget_id: 76
 
+# 测试用例生成配置
+test_generation:
+  enable_full_combination: false  # 是否启用全量组合测试
+  max_test_cases: 50              # 全量组合执行数量（可在GUI调整）
+
 # 数据库配置（用于数据校验）
 database:
   enabled: false  # 是否启用数据库验证

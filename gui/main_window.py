@@ -45,16 +45,19 @@ class DataSourceTestGUI:
         self.root.title("数据源接口自动化测试工具 v1.0")
         self.root.geometry("1200x800")
         self.root.minsize(900, 600)
-        
+
+        # 初始化估算结果
+        self._estimated_total = 0
+
         # 设置样式
         self.setup_styles()
-        
+
         # 创建界面
         self.create_widgets()
-        
+
         # 加载配置
         self.load_config()
-        
+
         # 刷新数据源列表
         self.refresh_datasources()
     
@@ -165,14 +168,16 @@ class DataSourceTestGUI:
         self.test_types = {
             'basic': tk.BooleanVar(value=True),
             'combine': tk.BooleanVar(value=True),
+            'full_combination': tk.BooleanVar(value=False),  # 全量组合测试
             'pagination': tk.BooleanVar(value=True),
             'no_pagination': tk.BooleanVar(value=True),
             'boundary': tk.BooleanVar(value=False),
         }
-        
+
         test_labels = {
             'basic': '基础场景 (TC001-007)',
             'combine': '组合场景 (TC101-104)',
+            'full_combination': '全量组合 (TC_FULL)',  # 新增
             'pagination': '分页场景 (TC401-410)',
             'no_pagination': '不分页场景 (TC501-508)',
             'boundary': '边界场景 (TC201-205)',
@@ -182,7 +187,34 @@ class DataSourceTestGUI:
             ttk.Checkbutton(test_type_frame, text=test_labels[key], variable=var).grid(
                 row=i//2, column=i%2, sticky=tk.W, padx=5, pady=2
             )
-        
+
+        # 全量组合配置（显示估算和执行数量）
+        full_combo_config_frame = ttk.LabelFrame(test_type_frame, text="全量组合配置", padding="5")
+        full_combo_config_frame.grid(row=3, column=0, columnspan=2, sticky=tk.W + tk.E, padx=5, pady=5)
+
+        # 第一行：估算按钮和显示
+        estimate_row = ttk.Frame(full_combo_config_frame)
+        estimate_row.pack(fill=tk.X, pady=2)
+        ttk.Button(estimate_row, text="📊 估算组合数", command=self.estimate_combinations).pack(side=tk.LEFT, padx=5)
+        self.estimate_result_var = tk.StringVar(value="未估算")
+        ttk.Label(estimate_row, textvariable=self.estimate_result_var, foreground='blue').pack(side=tk.LEFT, padx=5)
+
+        # 第二行：执行数量输入
+        exec_row = ttk.Frame(full_combo_config_frame)
+        exec_row.pack(fill=tk.X, pady=2)
+        ttk.Label(exec_row, text="执行数量:").pack(side=tk.LEFT, padx=5)
+        self.max_cases_var = tk.StringVar(value="50")
+        exec_entry = ttk.Entry(exec_row, textvariable=self.max_cases_var, width=8)
+        exec_entry.pack(side=tk.LEFT, padx=5)
+        # 绑定输入变化时更新比例
+        exec_entry.bind('<KeyRelease>', lambda e: self.update_exec_ratio())
+        self.exec_ratio_var = tk.StringVar(value="")
+        ttk.Label(exec_row, textvariable=self.exec_ratio_var, foreground='green').pack(side=tk.LEFT, padx=5)
+
+        # 第三行：说明
+        ttk.Label(full_combo_config_frame, text="💡 组合优先级：最全量参数组合优先，逐步递减",
+                  foreground='gray').pack(anchor=tk.W, pady=2)
+
         # 错误处理选项
         error_frame = ttk.LabelFrame(right_panel, text="错误处理", padding="5")
         error_frame.pack(fill=tk.X, pady=(0, 10))
@@ -255,17 +287,25 @@ class DataSourceTestGUI:
                 encoding = detect_encoding(str(config_path))
                 with open(config_path, 'r', encoding=encoding) as f:
                     config = yaml.safe_load(f)
-                
+
                 if config:
                     env = config.get('environment', {})
                     auth = config.get('auth', {})
                     database = config.get('database', {})
-                    
+                    test_generation = config.get('test_generation', {})
+
                     self.base_url_var.set(env.get('base_url', 'http://localhost:8080'))
                     self.tenant_id_var.set(auth.get('tenant_id', 'tenant_001'))
                     self.user_id_var.set(str(auth.get('user_id', 1001)))
                     self.db_validate_var.set(database.get('enabled', False))
-                    
+
+                    # 加载全量组合配置
+                    if 'full_combination' in self.test_types:
+                        self.test_types['full_combination'].set(
+                            test_generation.get('enable_full_combination', False)
+                        )
+                    self.max_cases_var.set(str(test_generation.get('max_test_cases', 50)))
+
                     self.log("配置加载成功", "SUCCESS")
             except Exception as e:
                 self.log(f"配置加载失败: {e}", "ERROR")
@@ -292,17 +332,21 @@ class DataSourceTestGUI:
                 'user': 'root',
                 'password': 'password'
             },
+            'test_generation': {
+                'enable_full_combination': self.test_types['full_combination'].get(),  # 是否启用全量组合
+                'max_test_cases': int(self.max_cases_var.get() or 500)  # 最大用例数
+            },
             'report': {
                 'output_dir': 'reports/html',
                 'title': '数据源查询接口测试报告'
             }
         }
-        
+
         config_path = PROJECT_ROOT / "config" / "config.yaml"
         try:
             with open(config_path, 'w', encoding='utf-8') as f:
                 yaml.dump(config, f, allow_unicode=True, default_flow_style=False)
-            
+
             self.log("配置保存成功", "SUCCESS")
             if not silent:
                 messagebox.showinfo("成功", "配置已保存")
@@ -404,6 +448,70 @@ INSERT INTO rpt_data_source_field (data_source_id, type, code, name, field, agg_
         """清空 SQL"""
         self.sql_text.delete(1.0, tk.END)
         self.log("已清空 SQL 内容", "INFO")
+        # 清空估算结果
+        self.estimate_result_var.set("未估算")
+        self.exec_ratio_var.set("")
+        self._estimated_total = 0
+
+    def estimate_combinations(self):
+        """估算全量组合数量"""
+        sql_content = self.sql_text.get(1.0, tk.END).strip()
+
+        if not sql_content:
+            messagebox.showwarning("提示", "请先输入 SQL 配置")
+            return
+
+        try:
+            from utils.sql_parser import SQLParser, DataSourceConfig
+            from utils.case_generator import TestCaseGenerator
+
+            parser = SQLParser()
+            fields = parser.parse_insert_statement(sql_content)
+
+            if not fields:
+                messagebox.showwarning("提示", "SQL 解析失败，请检查格式")
+                return
+
+            config = DataSourceConfig(fields)
+            generator = TestCaseGenerator(config)
+
+            # 估算组合数
+            estimate = generator.estimate_combination_count()
+
+            # 存储估算结果
+            self._estimated_total = estimate['total']
+
+            # 显示估算结果
+            result_text = f"总组合数: {estimate['total']} (过滤×{estimate['filter_combos']} × 维度×{estimate['dimension_combos']} × 指标×{estimate['index_combos']} × 排序×{estimate['order_combos']})"
+            self.estimate_result_var.set(result_text)
+
+            # 更新执行比例
+            self.update_exec_ratio()
+
+            # 记录日志
+            self.log(f"估算完成: 总组合数 {estimate['total']}", "SUCCESS")
+            self.log(f"可用字段: 过滤={estimate['filters_available']}, 维度={estimate['dimensions_available']}, 指标={estimate['index_info_available']}, 排序={estimate['orders_available']}", "INFO")
+
+        except Exception as e:
+            self.log(f"估算失败: {e}", "ERROR")
+            messagebox.showerror("错误", f"估算失败: {e}")
+
+    def update_exec_ratio(self):
+        """更新执行比例显示"""
+        try:
+            exec_count = int(self.max_cases_var.get() or 0)
+            total = getattr(self, '_estimated_total', 0)
+
+            if total > 0 and exec_count > 0:
+                ratio = min(exec_count, total) / total * 100
+                if exec_count >= total:
+                    self.exec_ratio_var.set(f"执行 {exec_count}/{total} (100%)")
+                else:
+                    self.exec_ratio_var.set(f"执行 {exec_count}/{total} ({ratio:.1f}%)")
+            else:
+                self.exec_ratio_var.set("")
+        except ValueError:
+            self.exec_ratio_var.set("")
     
     def refresh_datasources(self):
         """刷新数据源列表"""
@@ -435,17 +543,17 @@ INSERT INTO rpt_data_source_field (data_source_id, type, code, name, field, agg_
         selection = self.ds_listbox.curselection()
         if not selection:
             return
-        
+
         item = self.ds_listbox.get(selection[0])
         # 解析 widget_id（格式：datasource_76 - 授信用信单位统计）
         parts = item.split(" - ", 1)
         widget_id = parts[0].replace("datasource_", "")
         widget_name = parts[1] if len(parts) > 1 else ""
-        
+
         # 更新左侧的 ID 和名称
         self.widget_id_var.set(widget_id)
         self.widget_name_var.set(widget_name)
-        
+
         # 加载 SQL 文件内容
         sql_file = PROJECT_ROOT / "config" / "sql_input" / f"datasource_{widget_id}.sql"
         if sql_file.exists():
@@ -453,10 +561,13 @@ INSERT INTO rpt_data_source_field (data_source_id, type, code, name, field, agg_
                 encoding = detect_encoding(str(sql_file))
                 with open(sql_file, 'r', encoding=encoding) as f:
                     content = f.read()
-                
+
                 self.sql_text.delete(1.0, tk.END)
                 self.sql_text.insert(tk.END, content)
                 self.log(f"已加载数据源: {widget_id} - {widget_name}", "SUCCESS")
+
+                # 自动估算组合数
+                self.estimate_combinations()
             except Exception as e:
                 self.log(f"加载失败: {e}", "ERROR")
     

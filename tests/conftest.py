@@ -208,20 +208,25 @@ def _get_all_test_cases():
     config = get_config()
     current_widget_id = config.get('current_widget_id')
 
+    # 获取全量组合配置
+    test_generation = config.get('test_generation', {})
+    include_full_combination = test_generation.get('enable_full_combination', False)
+    max_cases = test_generation.get('max_test_cases', 500)
+
     if current_widget_id and current_widget_id in configs:
         # 只加载当前选中的数据源
         generator = TestCaseGenerator(configs[current_widget_id])
-        cases = generator.generate_all_cases()
+        cases = generator.generate_all_cases(include_full_combination, max_cases)
         all_cases.extend(cases)
         logger.info(f"只加载数据源 {current_widget_id} 的测试用例，共 {len(cases)} 个")
     else:
         # 加载所有数据源（兼容旧逻辑）
         for widget_id, ds_config in configs.items():
             generator = TestCaseGenerator(ds_config)
-            cases = generator.generate_all_cases()
+            cases = generator.generate_all_cases(include_full_combination, max_cases)
             all_cases.extend(cases)
         logger.info(f"加载所有数据源，共 {len(all_cases)} 个测试用例")
-    
+
     # 如果没有SQL配置，生成默认测试用例
     if not all_cases:
         all_cases = [
@@ -261,15 +266,16 @@ def pytest_collection_modifyitems(config, items):
         'TC2': 'boundary',    # TC201-TC205
         'TC4': 'pagination',  # TC401-TC410
         'TC5': 'no_pagination',  # TC501-TC508
+        'TC_FULL': 'full_combination',  # 全量组合测试
     }
-    
+
     for item in items:
         try:
             # 从测试用例 ID 中提取 case_id
             if hasattr(item, 'callspec') and item.callspec:
                 test_case = item.callspec.params.get('test_case', {})
                 case_id = test_case.get('case_id', '') if isinstance(test_case, dict) else ''
-                
+
                 if case_id:
                     # 根据 case_id 前缀匹配 marker
                     for prefix, marker_name in marker_map.items():
