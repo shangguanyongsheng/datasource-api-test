@@ -211,6 +211,8 @@ def _get_all_test_cases():
     # 获取全量组合配置
     test_generation = config.get('test_generation', {})
     include_full_combination = test_generation.get('enable_full_combination', False)
+    include_full_index = test_generation.get('enable_full_index', False)
+    include_full_dimension = test_generation.get('enable_full_dimension', False)
     max_cases = test_generation.get('max_test_cases', 500)
 
     # 收集测试用例（惰性消费生成器）
@@ -221,7 +223,8 @@ def _get_all_test_cases():
     if current_widget_id and current_widget_id in configs:
         # 只加载当前选中的数据源
         generator = TestCaseGenerator(configs[current_widget_id])
-        for case in generator.generate_all_cases(include_full_combination, max_cases):
+        for case in generator.generate_all_cases(include_full_combination, max_cases,
+                                                  include_full_index, include_full_dimension):
             all_cases.append(case)
             case_count += 1
             if case_count >= MAX_TOTAL_CASES:
@@ -232,7 +235,8 @@ def _get_all_test_cases():
         # 加载所有数据源（兼容旧逻辑）
         for widget_id, ds_config in configs.items():
             generator = TestCaseGenerator(ds_config)
-            for case in generator.generate_all_cases(include_full_combination, max_cases):
+            for case in generator.generate_all_cases(include_full_combination, max_cases,
+                                                      include_full_index, include_full_dimension):
                 all_cases.append(case)
                 case_count += 1
                 if case_count >= MAX_TOTAL_CASES:
@@ -280,6 +284,8 @@ def pytest_collection_modifyitems(config, items):
         'TC4': 'pagination',  # TC401-TC410
         'TC5': 'no_pagination',  # TC501-TC508
         'TC_FULL': 'full_combination',  # 全量组合测试
+        'TC_INDEX': 'full_index',  # 全量指标测试
+        'TC_DIM': 'full_dimension',  # 全量维度测试
     }
 
     for item in items:

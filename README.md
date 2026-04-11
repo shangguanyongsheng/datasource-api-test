@@ -152,7 +152,27 @@ INSERT INTO rpt_data_source_field (data_source_id, type, code, name, field, agg_
 | **分页场景** | TC401-405 | 首页、中间页、超大页码、大页大小 |
 | **不分页场景** | TC501-503 | 默认查询、single汇总、limit限制 |
 | **边界场景** | TC201-204 | 空过滤、无效widgetId、无效字段 |
+| **全量指标** | TC_INDEX_xxx | 一次性传入所有指标字段，配合过滤/维度/排序组合 |
+| **全量维度** | TC_DIM_xxx | 一次性传入所有维度字段，配合过滤/指标/排序组合 |
 | **全量组合** | TC_FULL_xxx | 笛卡尔积全量组合，最全量参数优先，支持数量限制 |
+
+### 全量指标测试
+
+全量指标测试会一次性传入所有配置的指标字段：
+- **TC_INDEX_FULL**: 仅全量指标
+- **TC_INDEX_FULL_FILTER**: 全量指标 + 单个过滤
+- **TC_INDEX_FULL_DIM**: 全量指标 + 全量维度
+- **TC_INDEX_FULL_ORDER**: 全量指标 + 全量排序
+- **TC_INDEX_FULL_ALL**: 全量指标 + 全量过滤 + 全量维度 + 全量排序
+
+### 全量维度测试
+
+全量维度测试会一次性传入所有配置的维度字段（自动分配 X/Y/Z groupByType）：
+- **TC_DIM_FULL**: 仅全量维度
+- **TC_DIM_FULL_FILTER**: 全量维度 + 单个过滤
+- **TC_DIM_FULL_INDEX**: 全量维度 + 全量指标
+- **TC_DIM_FULL_ORDER**: 全量维度 + 全量排序
+- **TC_DIM_FULL_ALL**: 全量维度 + 全量指标 + 全量过滤 + 全量排序
 
 ### 全量组合测试
 
@@ -281,6 +301,14 @@ pyinstaller build.spec
 MIT
 
 ## 📝 更新日志
+
+### v1.3 (2026-04-11)
+
+**新增功能**
+- ✅ 全量指标测试场景 (TC_INDEX_xxx)：一次性传入所有指标字段
+- ✅ 全量维度测试场景 (TC_DIM_xxx)：一次性传入所有维度字段
+- ✅ GUI 新增"全量指标"和"全量维度"测试类型选项
+- ✅ 每种场景包含多种组合（单独、+过滤、+维度、+排序、+全量参数）
 
 ### v1.2 (2026-04-11)
 

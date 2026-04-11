@@ -169,6 +169,8 @@ class DataSourceTestGUI:
             'basic': tk.BooleanVar(value=True),
             'combine': tk.BooleanVar(value=True),
             'full_combination': tk.BooleanVar(value=False),  # 全量组合测试
+            'full_index': tk.BooleanVar(value=False),  # 全量指标测试
+            'full_dimension': tk.BooleanVar(value=False),  # 全量维度测试
             'pagination': tk.BooleanVar(value=True),
             'no_pagination': tk.BooleanVar(value=True),
             'boundary': tk.BooleanVar(value=False),
@@ -177,7 +179,9 @@ class DataSourceTestGUI:
         test_labels = {
             'basic': '基础场景 (TC001-007)',
             'combine': '组合场景 (TC101-104)',
-            'full_combination': '全量组合 (TC_FULL)',  # 新增
+            'full_combination': '全量组合 (TC_FULL)',
+            'full_index': '全量指标 (TC_INDEX)',
+            'full_dimension': '全量维度 (TC_DIM)',
             'pagination': '分页场景 (TC401-410)',
             'no_pagination': '不分页场景 (TC501-508)',
             'boundary': '边界场景 (TC201-205)',
@@ -189,8 +193,9 @@ class DataSourceTestGUI:
             )
 
         # 全量组合配置（显示估算和执行数量）
+        # 8 个测试类型选项占用 4 行，所以全量组合配置放在 row=5
         full_combo_config_frame = ttk.LabelFrame(test_type_frame, text="全量组合配置", padding="5")
-        full_combo_config_frame.grid(row=3, column=0, columnspan=2, sticky=tk.W + tk.E, padx=5, pady=5)
+        full_combo_config_frame.grid(row=5, column=0, columnspan=2, sticky=tk.W + tk.E, padx=5, pady=5)
 
         # 第一行：估算按钮和显示
         estimate_row = ttk.Frame(full_combo_config_frame)
@@ -321,6 +326,14 @@ class DataSourceTestGUI:
                         self.test_types['full_combination'].set(
                             test_generation.get('enable_full_combination', False)
                         )
+                    if 'full_index' in self.test_types:
+                        self.test_types['full_index'].set(
+                            test_generation.get('enable_full_index', False)
+                        )
+                    if 'full_dimension' in self.test_types:
+                        self.test_types['full_dimension'].set(
+                            test_generation.get('enable_full_dimension', False)
+                        )
                     self.max_cases_var.set(str(test_generation.get('max_test_cases', 50)))
 
                     self.log("配置加载成功", "SUCCESS")
@@ -351,6 +364,8 @@ class DataSourceTestGUI:
             },
             'test_generation': {
                 'enable_full_combination': self.test_types['full_combination'].get(),  # 是否启用全量组合
+                'enable_full_index': self.test_types['full_index'].get(),  # 是否启用全量指标
+                'enable_full_dimension': self.test_types['full_dimension'].get(),  # 是否启用全量维度
                 'max_test_cases': int(self.max_cases_var.get() or 500)  # 最大用例数
             },
             'report': {

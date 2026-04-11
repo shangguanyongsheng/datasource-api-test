@@ -293,6 +293,218 @@ class TestCaseGenerator:
             "expected": {"status_code": 400}
         }
 
+    def generate_full_index_cases(self) -> Generator[Dict[str, Any], None, None]:
+        """生成全量指标测试用例（一次性传入所有指标字段）"""
+        widget_id = self.config.widget_id
+
+        if not self.config.index_info:
+            # 无指标时使用默认值
+            yield {
+                "case_id": "TC_INDEX_FULL",
+                "name": "全量指标-默认",
+                "widget_id": widget_id,
+                "filters": [],
+                "index_info": [{"code": "amount"}],
+                "dimensions": [],
+                "orders": [],
+                "param_count": 1,
+                "expected": {"status_code": 200}
+            }
+            return
+
+        # 构建全量指标列表
+        all_indexes = [{"code": f.code} for f in self.config.index_info]
+        index_names = [f.code for f in self.config.index_info]
+
+        # TC_INDEX_FULL: 全量指标，无其他参数
+        yield {
+            "case_id": "TC_INDEX_FULL",
+            "name": f"全量指标[{','.join(index_names)}]",
+            "widget_id": widget_id,
+            "filters": [],
+            "index_info": all_indexes,
+            "dimensions": [],
+            "orders": [],
+            "param_count": len(all_indexes),
+            "expected": {"status_code": 200}
+        }
+
+        # TC_INDEX_FULL_FILTER: 全量指标 + 单个过滤
+        if self.config.filters:
+            first_filter = self.config.filters[0]
+            yield {
+                "case_id": "TC_INDEX_FULL_FILTER",
+                "name": f"全量指标+过滤[{first_filter.code}]",
+                "widget_id": widget_id,
+                "filters": [self._build_filter(first_filter)],
+                "index_info": all_indexes,
+                "dimensions": [],
+                "orders": [],
+                "param_count": len(all_indexes) + 1,
+                "expected": {"status_code": 200}
+            }
+
+        # TC_INDEX_FULL_DIM: 全量指标 + 全量维度
+        if self.config.dimensions:
+            all_dims = [{"code": d.code, "groupByType": "X"} for d in self.config.dimensions]
+            dim_names = [f"{d.code}(X)" for d in self.config.dimensions]
+            yield {
+                "case_id": "TC_INDEX_FULL_DIM",
+                "name": f"全量指标+全量维度[{','.join(dim_names)}]",
+                "widget_id": widget_id,
+                "filters": [],
+                "index_info": all_indexes,
+                "dimensions": all_dims,
+                "orders": [],
+                "param_count": len(all_indexes) + len(all_dims),
+                "expected": {"status_code": 200}
+            }
+
+        # TC_INDEX_FULL_ORDER: 全量指标 + 全量排序
+        if self.config.orders:
+            all_orders = [{"code": o.code, "value": "DESC"} for o in self.config.orders]
+            order_names = [f"{o.code}(DESC)" for o in self.config.orders]
+            yield {
+                "case_id": "TC_INDEX_FULL_ORDER",
+                "name": f"全量指标+全量排序[{','.join(order_names)}]",
+                "widget_id": widget_id,
+                "filters": [],
+                "index_info": all_indexes,
+                "dimensions": [],
+                "orders": all_orders,
+                "param_count": len(all_indexes) + len(all_orders),
+                "expected": {"status_code": 200}
+            }
+
+        # TC_INDEX_FULL_ALL: 全量指标 + 全量过滤 + 全量维度 + 全量排序
+        all_filters = [self._build_filter(f) for f in self.config.filters] if self.config.filters else []
+        all_dims = [{"code": d.code, "groupByType": "X"} for d in self.config.dimensions] if self.config.dimensions else []
+        all_orders = [{"code": o.code, "value": "DESC"} for o in self.config.orders] if self.config.orders else []
+
+        if all_filters or all_dims or all_orders:
+            param_count = len(all_indexes) + len(all_filters) + len(all_dims) + len(all_orders)
+            name_parts = []
+            if all_filters:
+                name_parts.append(f"过滤[{','.join([f['code'] for f in all_filters])}]")
+            if all_dims:
+                name_parts.append(f"维度[{','.join([f"{d['code']}(X)" for d in all_dims])}]")
+            if all_orders:
+                name_parts.append(f"排序[{','.join([f"{o['code']}(DESC)" for o in all_orders])}]")
+
+            yield {
+                "case_id": "TC_INDEX_FULL_ALL",
+                "name": f"全量指标+全量参数[{','.join(name_parts)}]",
+                "widget_id": widget_id,
+                "filters": all_filters,
+                "index_info": all_indexes,
+                "dimensions": all_dims,
+                "orders": all_orders,
+                "param_count": param_count,
+                "expected": {"status_code": 200}
+            }
+
+    def generate_full_dimension_cases(self) -> Generator[Dict[str, Any], None, None]:
+        """生成全量维度测试用例（一次性传入所有维度字段）"""
+        widget_id = self.config.widget_id
+
+        if not self.config.dimensions:
+            # 无维度时跳过
+            return
+
+        # 构建全量维度列表（分配不同的 groupByType）
+        # 策略：按 X, Y, Z 循环分配
+        group_types = ['X', 'Y', 'Z']
+        all_dims = []
+        dim_names = []
+        for i, d in enumerate(self.config.dimensions):
+            group_type = group_types[i % 3]  # 循环分配
+            all_dims.append({"code": d.code, "groupByType": group_type})
+            dim_names.append(f"{d.code}({group_type})")
+
+        # TC_DIM_FULL: 全量维度，无其他参数
+        yield {
+            "case_id": "TC_DIM_FULL",
+            "name": f"全量维度[{','.join(dim_names)}]",
+            "widget_id": widget_id,
+            "filters": [],
+            "index_info": [{"code": self.config.index_info[0].code}] if self.config.index_info else [{"code": "amount"}],
+            "dimensions": all_dims,
+            "orders": [],
+            "param_count": len(all_dims) + 1,
+            "expected": {"status_code": 200}
+        }
+
+        # TC_DIM_FULL_FILTER: 全量维度 + 单个过滤
+        if self.config.filters:
+            first_filter = self.config.filters[0]
+            yield {
+                "case_id": "TC_DIM_FULL_FILTER",
+                "name": f"全量维度+过滤[{first_filter.code}]",
+                "widget_id": widget_id,
+                "filters": [self._build_filter(first_filter)],
+                "index_info": [{"code": self.config.index_info[0].code}] if self.config.index_info else [{"code": "amount"}],
+                "dimensions": all_dims,
+                "orders": [],
+                "param_count": len(all_dims) + 2,
+                "expected": {"status_code": 200}
+            }
+
+        # TC_DIM_FULL_INDEX: 全量维度 + 全量指标
+        if self.config.index_info:
+            all_indexes = [{"code": f.code} for f in self.config.index_info]
+            yield {
+                "case_id": "TC_DIM_FULL_INDEX",
+                "name": f"全量维度+全量指标[{','.join([f.code for f in self.config.index_info])}]",
+                "widget_id": widget_id,
+                "filters": [],
+                "index_info": all_indexes,
+                "dimensions": all_dims,
+                "orders": [],
+                "param_count": len(all_dims) + len(all_indexes),
+                "expected": {"status_code": 200}
+            }
+
+        # TC_DIM_FULL_ORDER: 全量维度 + 全量排序
+        if self.config.orders:
+            all_orders = [{"code": o.code, "value": "DESC"} for o in self.config.orders]
+            yield {
+                "case_id": "TC_DIM_FULL_ORDER",
+                "name": f"全量维度+全量排序[{','.join([f"{o.code}(DESC)" for o in self.config.orders])}]",
+                "widget_id": widget_id,
+                "filters": [],
+                "index_info": [{"code": self.config.index_info[0].code}] if self.config.index_info else [{"code": "amount"}],
+                "dimensions": all_dims,
+                "orders": all_orders,
+                "param_count": len(all_dims) + len(all_orders) + 1,
+                "expected": {"status_code": 200}
+            }
+
+        # TC_DIM_FULL_ALL: 全量维度 + 全量指标 + 全量过滤 + 全量排序
+        all_filters = [self._build_filter(f) for f in self.config.filters] if self.config.filters else []
+        all_indexes = [{"code": f.code} for f in self.config.index_info] if self.config.index_info else [{"code": "amount"}]
+        all_orders = [{"code": o.code, "value": "DESC"} for o in self.config.orders] if self.config.orders else []
+
+        param_count = len(all_dims) + len(all_indexes) + len(all_filters) + len(all_orders)
+        name_parts = [f"维度[{','.join(dim_names)}]"]
+        if all_indexes:
+            name_parts.append(f"指标[{','.join([i['code'] for i in all_indexes])}]")
+        if all_filters:
+            name_parts.append(f"过滤[{','.join([f['code'] for f in all_filters])}]")
+        if all_orders:
+            name_parts.append(f"排序[{','.join([f"{o['code']}(DESC)" for o in all_orders])}]")
+
+        yield {
+            "case_id": "TC_DIM_FULL_ALL",
+            "name": f"全量维度+全量参数[{','.join(name_parts)}]",
+            "widget_id": widget_id,
+            "filters": all_filters,
+            "index_info": all_indexes,
+            "dimensions": all_dims,
+            "orders": all_orders,
+            "param_count": param_count,
+            "expected": {"status_code": 200}
+        }
+
     def estimate_combination_count(self) -> Dict[str, int]:
         """
         估算全量组合的数量（不实际生成用例）
@@ -727,12 +939,15 @@ class TestCaseGenerator:
 
         return combos
 
-    def generate_all_cases(self, include_full_combination: bool = False, max_cases: int = 500) -> Generator[Dict[str, Any], None, None]:
+    def generate_all_cases(self, include_full_combination: bool = False, max_cases: int = 500,
+                          include_full_index: bool = False, include_full_dimension: bool = False) -> Generator[Dict[str, Any], None, None]:
         """生成所有测试用例（惰性生成，避免内存爆炸）
 
         Args:
             include_full_combination: 是否包含全量组合测试用例
             max_cases: 全量组合时的最大用例数限制
+            include_full_index: 是否包含全量指标测试用例
+            include_full_dimension: 是否包含全量维度测试用例
 
         Returns:
             测试用例生成器（惰性生成）
@@ -743,6 +958,14 @@ class TestCaseGenerator:
         yield from self.generate_pagination_cases()
         yield from self.generate_no_pagination_cases()
         yield from self.generate_boundary_cases()
+
+        # 全量指标测试用例
+        if include_full_index:
+            yield from self.generate_full_index_cases()
+
+        # 全量维度测试用例
+        if include_full_dimension:
+            yield from self.generate_full_dimension_cases()
 
         # 如果启用全量组合，添加全量组合用例（惰性生成）
         if include_full_combination:
