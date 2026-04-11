@@ -216,28 +216,45 @@ class DataSourceTestGUI:
                   foreground='gray').pack(anchor=tk.W, pady=2)
 
         # 错误处理选项
-        error_frame = ttk.LabelFrame(right_panel, text="错误处理", padding="5")
+        error_frame = ttk.LabelFrame(right_panel, text="执行配置", padding="5")
         error_frame.pack(fill=tk.X, pady=(0, 10))
-        
+
+        # 并发线程数
+        concurrent_row = ttk.Frame(error_frame)
+        concurrent_row.pack(fill=tk.X, pady=2)
+        ttk.Label(concurrent_row, text="并发线程:").pack(side=tk.LEFT)
+        self.concurrent_var = tk.StringVar(value="4")
+        concurrent_entry = ttk.Entry(concurrent_row, textvariable=self.concurrent_var, width=5)
+        concurrent_entry.pack(side=tk.LEFT, padx=5)
+        ttk.Label(concurrent_row, text="(建议 2-8，auto=自动)").pack(side=tk.LEFT)
+        # 并发模式开关
+        self.enable_concurrent_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            concurrent_row,
+            text="启用并发",
+            variable=self.enable_concurrent_var
+        ).pack(side=tk.LEFT, padx=10)
+
+        # 错误处理选项
         self.skip_errors_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(
-            error_frame, 
-            text="跳过错误继续执行（出错不中断，继续跑下一个用例）", 
+            error_frame,
+            text="跳过错误继续执行（出错不中断，继续跑下一个用例）",
             variable=self.skip_errors_var
         ).pack(anchor=tk.W)
-        
+
         self.max_fail_var = tk.StringVar(value="0")
         max_fail_frame = ttk.Frame(error_frame)
         max_fail_frame.pack(fill=tk.X, pady=(5, 0))
         ttk.Label(max_fail_frame, text="最大失败数:").pack(side=tk.LEFT)
         ttk.Entry(max_fail_frame, textvariable=self.max_fail_var, width=5).pack(side=tk.LEFT, padx=5)
         ttk.Label(max_fail_frame, text="(0=不限制，出错继续执行)").pack(side=tk.LEFT)
-        
+
         # 数据库验证选项
         self.db_validate_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(
-            error_frame, 
-            text="启用数据库验证（对比数据库数据）", 
+            error_frame,
+            text="启用数据库验证（对比数据库数据）",
             variable=self.db_validate_var
         ).pack(anchor=tk.W, pady=(5, 0))
         
@@ -627,11 +644,25 @@ INSERT INTO rpt_data_source_field (data_source_id, type, code, name, field, agg_
                 "--self-contained-html",
                 "-p", "no:warnings"
             ]
-            
+
+            # 添加并发执行参数（pytest-xdist）
+            if self.enable_concurrent_var.get():
+                concurrent = self.concurrent_var.get().strip()
+                if concurrent.lower() == 'auto':
+                    cmd.extend(["-n", "auto"])
+                else:
+                    try:
+                        n = int(concurrent)
+                        if n > 0:
+                            cmd.extend(["-n", str(n)])
+                            self.log(f"启用并发执行: {n} 个进程", "INFO")
+                    except ValueError:
+                        self.log("并发参数无效，使用默认值", "WARNING")
+
             # 添加标记过滤
             marker_expr = " or ".join(markers)
             cmd.extend(["-m", marker_expr])
-            
+
             # 添加错误处理选项
             if self.skip_errors_var.get():
                 max_fail = self.max_fail_var.get()
@@ -640,7 +671,7 @@ INSERT INTO rpt_data_source_field (data_source_id, type, code, name, field, agg_
                     cmd.extend([f"--maxfail={max_fail_int}"])
                 except ValueError:
                     cmd.extend(["--maxfail=0"])
-            
+
             self.log(f"执行命令: {' '.join(cmd)}", "INFO")
 
             # 设置环境变量，强制 Python 输出 UTF-8
