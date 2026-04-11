@@ -349,9 +349,9 @@ class TestCaseGenerator:
             total += sum(2 ** r for _ in combinations(self.config.orders, r))
         return total
 
-    def generate_full_combination_cases(self, max_cases: int = 500) -> List[Dict[str, Any]]:
+    def generate_full_combination_cases(self, max_cases: int = 500) -> Generator[Dict[str, Any], None, None]:
         """
-        生成全量笛卡尔积组合测试用例
+        生成全量笛卡尔积组合测试用例（惰性生成，避免内存爆炸）
 
         组合优先级：最全量组合优先，逐步递减
         - 优先包含所有过滤、所有维度、所有指标、所有排序的组合
@@ -361,79 +361,184 @@ class TestCaseGenerator:
             max_cases: 最大用例数量限制，默认 500
 
         Returns:
-            测试用例列表
+            测试用例生成器（惰性生成）
         """
         widget_id = self.config.widget_id
 
-        # 1. 准备各参数的所有组合
-        filter_combos = self._get_filter_combinations()
-        dimension_combos = self._get_dimension_combinations()
-        index_combos = self._get_index_combinations()
-        order_combos = self._get_order_combinations()
+        # 1. 准备各参数的所有组合（惰性获取）
+        filter_combos = self._get_filter_combinations_lazy()
+        dimension_combos = self._get_dimension_combinations_lazy()
+        index_combos = self._get_index_combinations_lazy()
+        order_combos = self._get_order_combinations_lazy()
 
+        # 2. 估算总组合数（用于日志）
+        estimate = self.estimate_combination_count()
+        total_combinations = estimate['total']
         logger.info(f"全量组合统计: "
-                   f"过滤组合={len(filter_combos)}, "
-                   f"维度组合={len(dimension_combos)}, "
-                   f"指标组合={len(index_combos)}, "
-                   f"排序组合={len(order_combos)}")
+                   f"过滤组合={estimate['filter_combos']}, "
+                   f"维度组合={estimate['dimension_combos']}, "
+                   f"指标组合={estimate['index_combos']}, "
+                   f"排序组合={estimate['order_combos']}, "
+                   f"总组合={total_combinations}")
 
-        # 2. 计算总组合数
-        total_combinations = len(filter_combos) * len(dimension_combos) * len(index_combos) * len(order_combos)
-        logger.info(f"理论总组合数: {total_combinations}")
+        # 3. 根据组合数决定策略
+        if total_combinations <= max_cases * 10:
+            # 组合数可控：按参数数量排序生成
+            yield from self._generate_sorted_combinations(
+                filter_combos, dimension_combos, index_combos, order_combos,
+                widget_id, max_cases
+            )
+        else:
+            # 组合数太多：直接按顺序生成前 N 个（不排序）
+            logger.warning(f"组合数过大({total_combinations})，跳过排序直接生成前{max_cases}个")
+            yield from self._generate_direct_combinations(
+                filter_combos, dimension_combos, index_combos, order_combos,
+                widget_id, max_cases
+            )
 
-        # 3. 生成所有笛卡尔积组合（先不限制数量）
-        all_combinations = list(product(filter_combos, dimension_combos, index_combos, order_combos))
+    def _generate_sorted_combinations(self, filter_combos, dimension_combos,
+                                       index_combos, order_combos,
+                                       widget_id, max_cases) -> Generator[Dict[str, Any], None, None]:
+        """按参数数量排序生成（组合数可控时）"""
+        # 先收集有限数量的组合用于排序
+        collected = []
+        count = 0
 
-        # 4. 按参数数量排序（降序，最全量组合优先）
-        # 参数数量 = 过滤数 + 维度数 + 指标数 + 排序数
+        for filter_list, dimension_list, index_list, order_list in product(
+                filter_combos, dimension_combos, index_combos, order_combos):
+            collected.append((filter_list, dimension_list, index_list, order_list))
+            count += 1
+            # 只收集 max_cases * 2 个，避免内存爆炸
+            if count >= max_cases * 2:
+                break
+
+        # 按参数数量降序排序
         def get_param_count(combo):
             filter_list, dimension_list, index_list, order_list = combo
             return len(filter_list) + len(dimension_list) + len(index_list) + len(order_list)
 
-        # 按参数数量降序排序，确保最全量组合排在前面
-        all_combinations.sort(key=get_param_count, reverse=True)
+        collected.sort(key=get_param_count, reverse=True)
 
-        logger.info(f"排序完成，最全量组合参数数: {get_param_count(all_combinations[0]) if all_combinations else 0}")
+        # 生成前 max_cases 个用例
+        for case_num, (filter_list, dimension_list, index_list, order_list) in enumerate(collected[:max_cases], start=1):
+            yield self._build_case(case_num, filter_list, dimension_list, index_list, order_list, widget_id)
 
-        # 5. 生成测试用例（限制数量）
-        cases = []
-        for case_num, (filter_list, dimension_list, index_list, order_list) in enumerate(all_combinations[:max_cases], start=1):
-            # 构建用例名称
-            name_parts = []
-            if filter_list:
-                filter_names = [f['code'] for f in filter_list]
-                name_parts.append(f"过滤[{','.join(filter_names)}]")
-            if dimension_list:
-                dim_names = [f"{d['code']}({d['groupByType']})" for d in dimension_list]
-                name_parts.append(f"维度[{','.join(dim_names)}]")
-            if index_list:
-                index_names = [i['code'] for i in index_list]
-                name_parts.append(f"指标[{','.join(index_names)}]")
-            if order_list:
-                order_names = [f"{o['code']}({o['value']})" for o in order_list]
-                name_parts.append(f"排序[{','.join(order_names)}]")
+    def _generate_direct_combinations(self, filter_combos, dimension_combos,
+                                       index_combos, order_combos,
+                                       widget_id, max_cases) -> Generator[Dict[str, Any], None, None]:
+        """直接按顺序生成前 N 个（组合数太大时）"""
+        case_num = 0
+        for filter_list, dimension_list, index_list, order_list in product(
+                filter_combos, dimension_combos, index_combos, order_combos):
+            case_num += 1
+            yield self._build_case(case_num, filter_list, dimension_list, index_list, order_list, widget_id)
+            if case_num >= max_cases:
+                break
 
-            case_name = "全量组合-" + (", ".join(name_parts) if name_parts else "默认查询")
+    def _build_case(self, case_num, filter_list, dimension_list, index_list, order_list, widget_id) -> Dict[str, Any]:
+        """构建单个测试用例"""
+        # 构建用例名称
+        name_parts = []
+        if filter_list:
+            filter_names = [f['code'] for f in filter_list]
+            name_parts.append(f"过滤[{','.join(filter_names)}]")
+        if dimension_list:
+            dim_names = [f"{d['code']}({d['groupByType']})" for d in dimension_list]
+            name_parts.append(f"维度[{','.join(dim_names)}]")
+        if index_list:
+            index_names = [i['code'] for i in index_list]
+            name_parts.append(f"指标[{','.join(index_names)}]")
+        if order_list:
+            order_names = [f"{o['code']}({o['value']})" for o in order_list]
+            name_parts.append(f"排序[{','.join(order_names)}]")
 
-            case = {
-                "case_id": f"TC_FULL_{case_num:03d}",
-                "name": case_name,
-                "widget_id": widget_id,
-                "filters": filter_list,
-                "dimensions": dimension_list,
-                "index_info": index_list,
-                "orders": order_list,
-                "param_count": get_param_count((filter_list, dimension_list, index_list, order_list)),
-                "expected": {"status_code": 200}
-            }
+        case_name = "全量组合-" + (", ".join(name_parts) if name_parts else "默认查询")
 
-            cases.append(case)
+        param_count = len(filter_list) + len(dimension_list) + len(index_list) + len(order_list)
 
-        if total_combinations > max_cases:
-            logger.info(f"从 {total_combinations} 组合中选择前 {max_cases} 个（最全量组合优先）")
+        return {
+            "case_id": f"TC_FULL_{case_num:03d}",
+            "name": case_name,
+            "widget_id": widget_id,
+            "filters": filter_list,
+            "dimensions": dimension_list,
+            "index_info": index_list,
+            "orders": order_list,
+            "param_count": param_count,
+            "expected": {"status_code": 200}
+        }
 
-        logger.info(f"全量组合共生成 {len(cases)} 个测试用例")
-        return cases
+    def _get_filter_combinations_lazy(self) -> Generator[List[Dict], None, None]:
+        """惰性生成过滤条件的所有组合"""
+        if not self.config.filters:
+            yield []
+            return
+
+        # 生成 1~N 个过滤器的组合（至少需要一个）
+        for r in range(1, len(self.config.filters) + 1):
+            for combo in combinations(self.config.filters, r):
+                filter_list = [self._build_filter(f) for f in combo]
+                yield filter_list
+
+    def _get_dimension_combinations_lazy(self) -> Generator[List[Dict], None, None]:
+        """惰性生成维度的所有组合（带 groupByType 分配）"""
+        if not self.config.dimensions:
+            yield []
+            return
+
+        group_types = ['X', 'Y', 'Z']
+
+        # 生成 0~M 个维度的组合（包括空维度）
+        for r in range(0, len(self.config.dimensions) + 1):
+            for dim_combo in combinations(self.config.dimensions, r):
+                if r == 0:
+                    yield []
+                else:
+                    # 为每个维度组合分配不同的 groupByType
+                    for type_assignment in product(group_types, repeat=r):
+                        dimension_list = []
+                        for i, dim in enumerate(dim_combo):
+                            dimension_list.append({
+                                "code": dim.code,
+                                "groupByType": type_assignment[i]
+                            })
+                        yield dimension_list
+
+    def _get_index_combinations_lazy(self) -> Generator[List[Dict], None, None]:
+        """惰性生成指标的所有组合（至少选择一个指标）"""
+        if not self.config.index_info:
+            yield [{"code": "amount"}]
+            return
+
+        # 生成 1~K 个指标的组合（至少需要一个）
+        for r in range(1, len(self.config.index_info) + 1):
+            for combo in combinations(self.config.index_info, r):
+                index_list = [{"code": f.code} for f in combo]
+                yield index_list
+
+    def _get_order_combinations_lazy(self) -> Generator[List[Dict], None, None]:
+        """惰性生成排序的所有组合（带 ASC/DESC）"""
+        if not self.config.orders:
+            yield []
+            return
+
+        order_values = ['ASC', 'DESC']
+
+        # 生成 0~L 个排序的组合（包括不排序）
+        for r in range(0, len(self.config.orders) + 1):
+            for order_combo in combinations(self.config.orders, r):
+                if r == 0:
+                    yield []
+                else:
+                    # 为每个排序组合分配 ASC 或 DESC
+                    for value_assignment in product(order_values, repeat=r):
+                        order_list = []
+                        for i, order in enumerate(order_combo):
+                            order_list.append({
+                                "code": order.code,
+                                "value": value_assignment[i]
+                            })
+                        yield order_list
 
     def _get_filter_combinations(self) -> List[List[Dict]]:
         """获取过滤条件的所有组合"""
@@ -517,8 +622,31 @@ class TestCaseGenerator:
 
         return combos
 
-    def generate_all_cases(self, include_full_combination: bool = False, max_cases: int = 500) -> List[Dict[str, Any]]:
-        """生成所有测试用例
+    def generate_all_cases(self, include_full_combination: bool = False, max_cases: int = 500) -> Generator[Dict[str, Any], None, None]:
+        """生成所有测试用例（惰性生成，避免内存爆炸）
+
+        Args:
+            include_full_combination: 是否包含全量组合测试用例
+            max_cases: 全量组合时的最大用例数限制
+
+        Returns:
+            测试用例生成器（惰性生成）
+        """
+        # 基础用例（数量较少，可以直接生成）
+        yield from self.generate_basic_cases()
+        yield from self.generate_combine_cases()
+        yield from self.generate_pagination_cases()
+        yield from self.generate_no_pagination_cases()
+        yield from self.generate_boundary_cases()
+
+        # 如果启用全量组合，添加全量组合用例（惰性生成）
+        if include_full_combination:
+            yield from self.generate_full_combination_cases(max_cases)
+
+    def generate_all_cases_as_list(self, include_full_combination: bool = False, max_cases: int = 500) -> List[Dict[str, Any]]:
+        """生成所有测试用例并返回列表（仅在需要统计数量时使用）
+
+        注意：此方法会将所有用例加载到内存，仅在必要时使用。
 
         Args:
             include_full_combination: 是否包含全量组合测试用例
@@ -527,19 +655,7 @@ class TestCaseGenerator:
         Returns:
             测试用例列表
         """
-        cases = []
-
-        cases.extend(list(self.generate_basic_cases()))
-        cases.extend(list(self.generate_combine_cases()))
-        cases.extend(list(self.generate_pagination_cases()))
-        cases.extend(list(self.generate_no_pagination_cases()))
-        cases.extend(list(self.generate_boundary_cases()))
-
-        # 如果启用全量组合，添加全量组合用例
-        if include_full_combination:
-            full_cases = self.generate_full_combination_cases(max_cases)
-            cases.extend(full_cases)
-
+        cases = list(self.generate_all_cases(include_full_combination, max_cases))
         logger.info(f"共生成 {len(cases)} 个测试用例")
         return cases
 

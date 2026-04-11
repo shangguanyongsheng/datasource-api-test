@@ -198,10 +198,10 @@ def log_test_info(request):
 # ============ 参数化测试用例生成 ============
 
 def _get_all_test_cases():
-    """获取所有生成的测试用例"""
+    """获取所有生成的测试用例（惰性生成）"""
     from utils.case_generator import TestCaseGenerator
 
-    all_cases = []
+    # 使用生成器，避免内存爆炸
     configs = get_data_source_configs()
 
     # 从配置文件获取当前选中的数据源ID
@@ -213,18 +213,31 @@ def _get_all_test_cases():
     include_full_combination = test_generation.get('enable_full_combination', False)
     max_cases = test_generation.get('max_test_cases', 500)
 
+    # 收集测试用例（惰性消费生成器）
+    all_cases = []
+    case_count = 0
+    MAX_TOTAL_CASES = 1000  # 安全限制：最多1000个用例
+
     if current_widget_id and current_widget_id in configs:
         # 只加载当前选中的数据源
         generator = TestCaseGenerator(configs[current_widget_id])
-        cases = generator.generate_all_cases(include_full_combination, max_cases)
-        all_cases.extend(cases)
-        logger.info(f"只加载数据源 {current_widget_id} 的测试用例，共 {len(cases)} 个")
+        for case in generator.generate_all_cases(include_full_combination, max_cases):
+            all_cases.append(case)
+            case_count += 1
+            if case_count >= MAX_TOTAL_CASES:
+                logger.warning(f"达到最大用例限制 {MAX_TOTAL_CASES}，停止生成")
+                break
+        logger.info(f"只加载数据源 {current_widget_id} 的测试用例，共 {len(all_cases)} 个")
     else:
         # 加载所有数据源（兼容旧逻辑）
         for widget_id, ds_config in configs.items():
             generator = TestCaseGenerator(ds_config)
-            cases = generator.generate_all_cases(include_full_combination, max_cases)
-            all_cases.extend(cases)
+            for case in generator.generate_all_cases(include_full_combination, max_cases):
+                all_cases.append(case)
+                case_count += 1
+                if case_count >= MAX_TOTAL_CASES:
+                    logger.warning(f"达到最大用例限制 {MAX_TOTAL_CASES}，停止生成")
+                    break
         logger.info(f"加载所有数据源，共 {len(all_cases)} 个测试用例")
 
     # 如果没有SQL配置，生成默认测试用例
@@ -418,7 +431,8 @@ def pytest_runtest_makereport(item, call):
                 request_body = request_info.get('request_body')
                 if request_body:
                     if isinstance(request_body, dict):
-                        formatted = json.dumps(request_body, ensure_ascii=False, indent=2)
+                        # 不格式化，节省内存
+                        formatted = json.dumps(request_body, ensure_ascii=False)
                         extra_info.append(f"\n请求体:\n{formatted}")
                     else:
                         extra_info.append(f"\n请求体:\n{request_body}")

@@ -210,8 +210,8 @@ class APIClient:
                         logger.warning(f"响应数据量过大({len(records)}条，{size_kb:.1f}KB)，已截断")
                         data = truncated_data
             
-            # 统一格式化输出
-            return json.dumps(data, ensure_ascii=False, indent=2)
+            # 统一输出（不格式化，节省内存）
+            return json.dumps(data, ensure_ascii=False)
         
         except (json.JSONDecodeError, TypeError):
             # 不是 JSON，原样返回
