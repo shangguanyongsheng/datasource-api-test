@@ -7,9 +7,12 @@
 - 🖥️ **双模式运行**：GUI 图形界面 + 命令行两种方式
 - 🔄 **SQL 解析驱动**：支持简化格式（8字段）和完整格式（26字段）INSERT 语句解析
 - 🧪 **智能用例生成**：根据字段配置自动组合生成测试用例
+- 🔀 **全量组合测试**：支持生成全量笛卡尔积组合用例，最全量参数优先
+- ⚡ **并发执行**：支持多进程并行测试，大幅提升执行效率
 - 🎯 **单数据源测试**：只运行当前选中的数据源，不干扰其他配置
-- 📊 **HTML 测试报告**：生成美观的测试报告
-- ⚡ **错误跳过**：支持出错继续执行，不中断测试
+- 📊 **HTML 测试报告**：生成美观的测试报告，包含请求/响应详情
+- 🛡️ **内存安全**：惰性生成用例，响应数据智能截断，避免内存崩溃
+- ⚙️ **错误跳过**：支持出错继续执行，不中断测试
 - 📦 **可打包 EXE**：支持打包成独立可执行文件
 
 ## 📁 项目结构
@@ -126,9 +129,19 @@ INSERT INTO rpt_data_source_field (data_source_id, type, code, name, field, agg_
 | **服务地址** | API 服务地址，如 `http://127.0.0.1:8110` |
 | **租户ID** | 租户标识 |
 | **用户ID** | 用户标识 |
+| **并发线程** | 并发进程数（建议 2-8），`auto` 自动根据 CPU 核数设置 |
+| **启用并发** | 开启后使用多进程并行执行，大幅提升效率 |
 | **跳过错误继续执行** | 出错不中断，继续执行下一个用例 |
 | **最大失败数** | 0=不限制 |
+| **全量组合执行数量** | 限制全量组合用例数量，默认 50 |
 | **启用数据库验证** | 对比数据库数据（可选） |
+
+### 并发执行说明
+
+启用并发执行后：
+- 使用 `pytest-xdist` 多进程并行
+- 每个进程独立 fixture，执行完自动释放资源
+- 推荐设置：并发数 = CPU 核数，或使用 `auto`
 
 ## 🧪 测试场景
 
@@ -139,6 +152,22 @@ INSERT INTO rpt_data_source_field (data_source_id, type, code, name, field, agg_
 | **分页场景** | TC401-405 | 首页、中间页、超大页码、大页大小 |
 | **不分页场景** | TC501-503 | 默认查询、single汇总、limit限制 |
 | **边界场景** | TC201-204 | 空过滤、无效widgetId、无效字段 |
+| **全量组合** | TC_FULL_xxx | 笛卡尔积全量组合，最全量参数优先，支持数量限制 |
+
+### 全量组合测试
+
+全量组合测试会生成所有可能的参数组合：
+- **过滤组合**：1~N 个过滤器的所有组合
+- **维度组合**：0~M 个维度 + 3种 groupByType（X/Y/Z）分配
+- **指标组合**：1~K 个指标的所有组合
+- **排序组合**：0~L 个排序 + 2种方向（ASC/DESC）分配
+
+**优先级策略**：参数数量最多的组合优先执行，确保最复杂的场景被覆盖。
+
+**安全限制**：
+- 默认限制 50 个用例，避免测试时间过长
+- 惰性生成，避免内存崩溃
+- 最大用例数上限 1000
 
 ## 🔧 配置文件
 
@@ -149,7 +178,14 @@ INSERT INTO rpt_data_source_field (data_source_id, type, code, name, field, agg_
 environment:
   name: "测试环境"
   base_url: "http://127.0.0.1:8110"
-  timeout: 30
+  # timeout 支持两种格式：
+  # - int: 连接和读取超时相同，如 timeout: 30
+  # - [connect, read]: 分别设置，如 [10, 60] 表示连接超时 10 秒，读取超时 60 秒
+  timeout: [10, 60]
+  # 响应截断配置（避免大数据导致内存问题）
+  response_truncate:
+    max_records: 100   # 最多保留的记录数（超过则截断）
+    max_size_kb: 100   # 响应体大小阈值 KB（超过则截断）
 
 # 认证配置
 auth:
@@ -160,9 +196,14 @@ auth:
 # 当前测试的数据源ID（只运行这一个）
 current_widget_id: 76
 
+# 测试用例生成配置
+test_generation:
+  enable_full_combination: false  # 是否启用全量组合测试
+  max_test_cases: 50              # 全量组合执行数量（可在GUI调整）
+
 # 数据库配置（用于数据校验，可选）
 database:
-  enabled: false  # 是否启用数据库验证
+  enabled: false
   host: "localhost"
   port: 3306
   database: "cfs_report"
@@ -188,8 +229,17 @@ report:
 # 运行测试（使用 GUI 保存的配置）
 python -m pytest tests/test_dynamic.py -v --html=reports/html/report.html --self-contained-html
 
+# 并发执行（4个进程）
+python -m pytest tests/test_dynamic.py -v -n 4 --html=reports/html/report.html
+
+# 自动并发（根据CPU核数）
+python -m pytest tests/test_dynamic.py -v -n auto --html=reports/html/report.html
+
 # 只运行基础场景
 python -m pytest tests/test_dynamic.py -v -m basic --html=reports/html/report.html
+
+# 只运行全量组合
+python -m pytest tests/test_dynamic.py -v -m full_combination --html=reports/html/report.html
 
 # 跳过错误继续执行
 python -m pytest tests/test_dynamic.py -v --maxfail=0
@@ -229,3 +279,30 @@ pyinstaller build.spec
 ## 📄 License
 
 MIT
+
+## 📝 更新日志
+
+### v1.1 (2026-04-11)
+
+**性能优化**
+- ✅ 全量组合测试用例改为惰性生成，避免内存崩溃
+- ✅ 响应数据智能截断，超过 100KB/100条记录自动截断
+- ✅ 去掉 JSON 格式化，减少内存占用
+- ✅ 添加并发执行配置，支持多进程并行测试
+
+**问题修复**
+- ✅ GUI 执行日志强制 UTF-8 编码，解决 Windows 中文乱码
+- ✅ pytest-xdist 并发执行，每个进程独立释放资源
+
+**新增功能**
+- ✅ 全量组合测试用例生成（笛卡尔积，最全量优先）
+- ✅ 组合数估算功能，执行前预览组合数量
+- ✅ GUI 并发线程数配置（支持 auto 自动）
+- ✅ 测试报告添加数据量、耗时、备注列
+
+### v1.0
+
+- 初始版本
+- GUI + 命令行双模式
+- SQL 解析驱动测试用例生成
+- HTML 测试报告
