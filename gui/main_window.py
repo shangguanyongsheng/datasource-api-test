@@ -642,17 +642,22 @@ INSERT INTO rpt_data_source_field (data_source_id, type, code, name, field, agg_
                     cmd.extend(["--maxfail=0"])
             
             self.log(f"执行命令: {' '.join(cmd)}", "INFO")
-            
-            # 执行测试 - 使用系统默认编码（Windows 是 GBK）
-            import locale
+
+            # 设置环境变量，强制 Python 输出 UTF-8
+            import os
+            env = os.environ.copy()
+            env['PYTHONIOENCODING'] = 'utf-8'
+
+            # 执行测试 - 强制使用 UTF-8 编码
             process = subprocess.Popen(
                 cmd,
                 cwd=str(PROJECT_ROOT),
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
-                encoding=locale.getpreferredencoding(False),  # 使用系统默认编码
-                errors='replace'  # 无法解码时替换字符，而不是抛出异常
+                encoding='utf-8',  # 强制 UTF-8
+                errors='replace',  # 无法解码时替换字符
+                env=env
             )
             
             # 实时输出日志
