@@ -26,6 +26,16 @@ def powerset(iterable, min_size=0, max_size=None):
     return chain.from_iterable(combinations(s, r) for r in range(min_size, max_size + 1))
 
 
+def _limit_generator(generator, limit):
+    """限制生成器的产出数量"""
+    count = 0
+    for item in generator:
+        yield item
+        count += 1
+        if count >= limit:
+            return
+
+
 class TestCaseGenerator:
     """测试用例生成器"""
 
@@ -365,13 +375,7 @@ class TestCaseGenerator:
         """
         widget_id = self.config.widget_id
 
-        # 1. 准备各参数的所有组合（惰性获取）
-        filter_combos = self._get_filter_combinations_lazy()
-        dimension_combos = self._get_dimension_combinations_lazy()
-        index_combos = self._get_index_combinations_lazy()
-        order_combos = self._get_order_combinations_lazy()
-
-        # 2. 估算总组合数（用于日志）
+        # 1. 估算总组合数
         estimate = self.estimate_combination_count()
         total_combinations = estimate['total']
         logger.info(f"全量组合统计: "
@@ -381,35 +385,131 @@ class TestCaseGenerator:
                    f"排序组合={estimate['order_combos']}, "
                    f"总组合={total_combinations}")
 
-        # 3. 根据组合数决定策略
-        if total_combinations <= max_cases * 10:
-            # 组合数可控：按参数数量排序生成
-            yield from self._generate_sorted_combinations(
-                filter_combos, dimension_combos, index_combos, order_combos,
-                widget_id, max_cases
-            )
+        # 2. 安全阈值检查：如果总组合数太大，直接跳过或限制各层组合数
+        #    防止某个生成器产生过多组合，导致笛卡尔积爆炸
+        SAFETY_THRESHOLD = max_cases * 50  # 安全阈值：最多允许 max_cases * 50 个总组合
+
+        if total_combinations > SAFETY_THRESHOLD:
+            logger.warning(f"总组合数过大({total_combinations} > {SAFETY_THRESHOLD})，"
+                          f"将限制各层组合数以避免内存爆炸")
+
+            # 计算各层应该限制的组合数（使用立方根近似分配）
+            # 使得 filter_limit * dimension_limit * index_limit * order_limit <= max_cases * 2
+            target_product = max_cases * 2
+
+            # 各层的原始组合数
+            f_orig = estimate['filter_combos'] or 1
+            d_orig = estimate['dimension_combos'] or 1
+            i_orig = estimate['index_combos'] or 1
+            o_orig = estimate['order_combos'] or 1
+
+            # 计算各层应该限制的组合数（按比例缩减）
+            # 缩减因子 = (target_product / total_combinations)^(1/4)
+            reduction_factor = (target_product / total_combinations) ** 0.25
+
+            filter_limit = max(1, int(f_orig * reduction_factor))
+            dimension_limit = max(1, int(d_orig * reduction_factor))
+            index_limit = max(1, int(i_orig * reduction_factor))
+            order_limit = max(1, int(o_orig * reduction_factor))
+
+            logger.info(f"限制各层组合数: "
+                       f"过滤={filter_limit}/{f_orig}, "
+                       f"维度={dimension_limit}/{d_orig}, "
+                       f"指标={index_limit}/{i_orig}, "
+                       f"排序={order_limit}/{o_orig}")
+
+            # 将生成器转换为有限列表（每个列表的大小已限制）
+            filter_combos_list = list(_limit_generator(
+                self._get_filter_combinations_lazy(), filter_limit))
+            dimension_combos_list = list(_limit_generator(
+                self._get_dimension_combinations_lazy(), dimension_limit))
+            index_combos_list = list(_limit_generator(
+                self._get_index_combinations_lazy(), index_limit))
+            order_combos_list = list(_limit_generator(
+                self._get_order_combinations_lazy(), order_limit))
+
         else:
-            # 组合数太多：直接按顺序生成前 N 个（不排序）
-            logger.warning(f"组合数过大({total_combinations})，跳过排序直接生成前{max_cases}个")
-            yield from self._generate_direct_combinations(
-                filter_combos, dimension_combos, index_combos, order_combos,
-                widget_id, max_cases
-            )
+            # 组合数可控：将生成器转换为列表
+            # 注意：这里仍然会消耗内存，但组合数在安全范围内
+            filter_combos_list = list(self._get_filter_combinations_lazy())
+            dimension_combos_list = list(self._get_dimension_combinations_lazy())
+            index_combos_list = list(self._get_index_combinations_lazy())
+            order_combos_list = list(self._get_order_combinations_lazy())
+
+        # 3. 使用嵌套循环生成用例（惰性产出）
+        case_num = 0
+        collected_for_sort = []
+
+        # 先收集用于排序的组合（如果组合数可控）
+        if total_combinations <= max_cases * 10:
+            # 收集 max_cases * 2 个用于排序
+            collect_limit = min(max_cases * 2, len(filter_combos_list) * len(dimension_combos_list) *
+                               len(index_combos_list) * len(order_combos_list))
+
+            collected_enough = False
+            for filter_list in filter_combos_list:
+                if collected_enough:
+                    break
+                for dimension_list in dimension_combos_list:
+                    if collected_enough:
+                        break
+                    for index_list in index_combos_list:
+                        if collected_enough:
+                            break
+                        for order_list in order_combos_list:
+                            collected_for_sort.append(
+                                (filter_list, dimension_list, index_list, order_list))
+                            if len(collected_for_sort) >= collect_limit:
+                                collected_enough = True
+                                break
+
+            # 按参数数量降序排序
+            def get_param_count(combo):
+                f, d, i, o = combo
+                return len(f) + len(d) + len(i) + len(o)
+
+            collected_for_sort.sort(key=get_param_count, reverse=True)
+
+            # 生成前 max_cases 个用例
+            for case_num, (f, d, i, o) in enumerate(collected_for_sort[:max_cases], start=1):
+                yield self._build_case(case_num, f, d, i, o, widget_id)
+
+        else:
+            # 组合数太大，直接按顺序生成
+            for filter_list in filter_combos_list:
+                for dimension_list in dimension_combos_list:
+                    for index_list in index_combos_list:
+                        for order_list in order_combos_list:
+                            case_num += 1
+                            yield self._build_case(
+                                case_num, filter_list, dimension_list,
+                                index_list, order_list, widget_id)
+                            if case_num >= max_cases:
+                                return
 
     def _generate_sorted_combinations(self, filter_combos, dimension_combos,
                                        index_combos, order_combos,
                                        widget_id, max_cases) -> Generator[Dict[str, Any], None, None]:
-        """按参数数量排序生成（组合数可控时）"""
-        # 先收集有限数量的组合用于排序
+        """按参数数量排序生成（真正的惰性生成，不使用 product）"""
+        # 先收集有限数量的组合用于排序（使用嵌套循环惰性生成）
         collected = []
         count = 0
+        collect_limit = max_cases * 2  # 只收集 max_cases * 2 个
 
-        for filter_list, dimension_list, index_list, order_list in product(
-                filter_combos, dimension_combos, index_combos, order_combos):
-            collected.append((filter_list, dimension_list, index_list, order_list))
-            count += 1
-            # 只收集 max_cases * 2 个，避免内存爆炸
-            if count >= max_cases * 2:
+        # 不使用 itertools.product，因为它会一次性收集所有生成器的值到内存
+        for filter_list in filter_combos:
+            for dimension_list in dimension_combos:
+                for index_list in index_combos:
+                    for order_list in order_combos:
+                        collected.append((filter_list, dimension_list, index_list, order_list))
+                        count += 1
+                        if count >= collect_limit:
+                            break
+                    if count >= collect_limit:
+                        break
+                if count >= collect_limit:
+                    break
+            if count >= collect_limit:
                 break
 
         # 按参数数量降序排序
@@ -426,14 +526,19 @@ class TestCaseGenerator:
     def _generate_direct_combinations(self, filter_combos, dimension_combos,
                                        index_combos, order_combos,
                                        widget_id, max_cases) -> Generator[Dict[str, Any], None, None]:
-        """直接按顺序生成前 N 个（组合数太大时）"""
+        """直接按顺序生成前 N 个（真正的惰性生成，不使用 product）"""
         case_num = 0
-        for filter_list, dimension_list, index_list, order_list in product(
-                filter_combos, dimension_combos, index_combos, order_combos):
-            case_num += 1
-            yield self._build_case(case_num, filter_list, dimension_list, index_list, order_list, widget_id)
-            if case_num >= max_cases:
-                break
+
+        # 不使用 itertools.product，因为它会一次性收集所有生成器的值到内存
+        # 改用嵌套循环，实现真正的惰性生成
+        for filter_list in filter_combos:
+            for dimension_list in dimension_combos:
+                for index_list in index_combos:
+                    for order_list in order_combos:
+                        case_num += 1
+                        yield self._build_case(case_num, filter_list, dimension_list, index_list, order_list, widget_id)
+                        if case_num >= max_cases:
+                            return  # 直接返回，不再生成更多
 
     def _build_case(self, case_num, filter_list, dimension_list, index_list, order_list, widget_id) -> Dict[str, Any]:
         """构建单个测试用例"""
